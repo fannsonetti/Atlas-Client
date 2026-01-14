@@ -1,0 +1,22 @@
+{
+	"schemaVersion": 1,
+	"id": "atlas-client",
+	"version": "${version}",
+	"name": "Atlas Client",
+	"description": "Client-side automation and scripting runtime",
+	"authors": [ "Me!" ],
+	"license": "CC0-1.0",
+	"icon": "assets/atlas-client/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"name.atlasclient.AtlasClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.18.1",
+		"minecraft": "~1.21.5",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}

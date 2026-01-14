@@ -1,0 +1,11 @@
+{
+	"required": true,
+	"package": "name.atlasclient.mixin",
+	"refmap": "atlas-client.refmap.json",
+	"client": [
+		"ClientWorldCritParticleMixin"
+	],
+	"injectors": {
+		"defaultRequire": 0
+	}
+}
