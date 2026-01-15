@@ -420,62 +420,27 @@ public final class CommisionScript implements Script {
      */
     private LoreParse parseLoreFromNbt(ItemStack stack) {
         try {
-            // ItemStack#getSubNbt does not exist in your mappings.
-            // Use getNbt() if present; if not, fall back to reflection for getTag().
-            NbtCompound tag = null;
-
-            try {
-                // Most versions
-                tag = stack.getNbt();
-            } catch (Throwable ignored) {
-                // Older / different mappings
-                try {
-                    Method m = stack.getClass().getMethod("getTag");
-                    Object o = m.invoke(stack);
-                    if (o instanceof NbtCompound c) tag = c;
-                } catch (Throwable ignored2) {}
-            }
-
+            // Your mappings:
+            // - ItemStack#getNbt() does not exist
+            // - NbtCompound#getCompound(String) returns Optional<NbtCompound>
+            // - NbtCompound#getList(String) returns Optional<NbtList>
+            // - NbtList#getString(int) returns Optional<String>
+            //
+            // So we: (1) obtain the root tag via a compatibility helper, then (2) unwrap Optional values.
+            NbtCompound tag = getRootTagCompat(stack);
             if (tag == null) return null;
 
-            // "display" compound typically holds Lore
-            NbtCompound display;
-            try {
-                display = tag.getCompound("display");
-            } catch (Throwable t) {
-                // If getCompound isn't available for some reason, bail safely
-                return null;
-            }
+            NbtCompound display = tag.getCompound("display").orElse(null);
             if (display == null) return null;
 
-            // Your mappings only support contains(String)
             if (!display.contains("Lore")) return null;
 
-            // Your mappings only support getList(String) OR we can cast from get("Lore")
-            NbtList lore;
-            try {
-                lore = display.getList("Lore");
-            } catch (Throwable ignored) {
-                Object el = display.get("Lore");
-                if (!(el instanceof NbtList)) return null;
-                lore = (NbtList) el;
-            }
+            NbtList lore = display.getList("Lore").orElse(null);
             if (lore == null) return null;
 
             for (int i = 0; i < lore.size(); i++) {
-                String json;
-
-                // In your mappings, lore.getString(i) returns Optional<String>
-                try {
-                    Optional<String> opt = lore.getString(i);
-                    json = opt.orElse("");
-                } catch (Throwable ignored) {
-                    // Fallback: retrieve element and stringify
-                    Object el = lore.get(i);
-                    json = (el == null) ? "" : el.toString();
-                }
-
-                if (json == null || json.isBlank()) continue;
+                String json = lore.getString(i).orElse("");
+                if (json.isBlank()) continue;
 
                 String line = strip(extractTextFromJsonComponent(json)).trim();
                 if (line.isBlank()) continue;
@@ -494,7 +459,53 @@ public final class CommisionScript implements Script {
                     return new LoreParse(area, material);
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    /**
+     * Best-effort root-tag getter for older/newer mappings.
+     * Tries several common method names and finally scans for an NbtCompound field.
+     */
+    private static NbtCompound getRootTagCompat(ItemStack stack) {
+        if (stack == null) return null;
+
+        // Common accessor names across mappings/versions
+        for (String mName : new String[]{"getTag", "getOrCreateTag", "getOrCreateNbt", "getNbt"}) {
+            try {
+                Method m = stack.getClass().getMethod(mName);
+                Object o = m.invoke(stack);
+
+                if (o instanceof NbtCompound c) return c;
+                if (o instanceof Optional<?> opt && opt.orElse(null) instanceof NbtCompound c2) return c2;
+            } catch (Throwable ignored) {
+            }
+        }
+
+        // Declared methods (non-public)
+        for (String mName : new String[]{"getTag", "getOrCreateTag", "getOrCreateNbt", "getNbt"}) {
+            try {
+                Method m = stack.getClass().getDeclaredMethod(mName);
+                m.setAccessible(true);
+                Object o = m.invoke(stack);
+
+                if (o instanceof NbtCompound c) return c;
+                if (o instanceof Optional<?> opt && opt.orElse(null) instanceof NbtCompound c2) return c2;
+            } catch (Throwable ignored) {
+            }
+        }
+
+        // Last resort: look for a field that is (or contains) an NbtCompound
+        try {
+            for (Field f : stack.getClass().getDeclaredFields()) {
+                if (!NbtCompound.class.isAssignableFrom(f.getType())) continue;
+                f.setAccessible(true);
+                Object o = f.get(stack);
+                if (o instanceof NbtCompound c) return c;
+            }
+        } catch (Throwable ignored) {
+        }
 
         return null;
     }
