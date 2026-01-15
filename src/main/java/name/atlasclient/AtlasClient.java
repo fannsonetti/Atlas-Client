@@ -36,7 +36,7 @@ public class AtlasClient implements ClientModInitializer {
         name.atlasclient.script.mining.CommisionScript commision = new name.atlasclient.script.mining.CommisionScript();
         name.atlasclient.script.mining.OreMiningScript ore = new name.atlasclient.script.mining.OreMiningScript();
 
-        name.atlasclient.script.intermediary.PathfindScript pathfind = new name.atlasclient.script.intermediary.PathfindScript();
+        name.atlasclient.script.misc.PathfindScript pathfind = new name.atlasclient.script.misc.PathfindScript();
         name.atlasclient.script.intermediary.DrillRefueler drillRefueler = new name.atlasclient.script.intermediary.DrillRefueler();
 
         // Inject so CommisionScript can call the real instances that are registered

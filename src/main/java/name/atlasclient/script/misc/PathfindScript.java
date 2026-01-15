@@ -109,7 +109,7 @@ public final class PathfindScript implements Script {
     private static final double STOP_GOAL_FEET_Y_EPS = 0.35;
 
     // Repath
-    private static final int REPATH_EVERY_TICKS = 120;
+    private static final int REPATH_EVERY_TICKS = 40;
     private static final int OFFPATH_REPATH_COOLDOWN_TICKS = 35;
 
     // A*
@@ -154,6 +154,10 @@ public final class PathfindScript implements Script {
     private static final int JUMP_HOLD_TICKS = 3;
     private static final int JUMP_COOLDOWN_TICKS = 10;
     private static final int JUMP_GRACE_TICKS_ON_START = 10;
+
+    // Step-up failure handling (prevents infinite jump loops at high movement speeds)
+    private static final int STEPUP_FAIL_MAX_ATTEMPTS = 3;
+    private static final int STEPUP_ATTEMPT_TIMEOUT_TICKS = 26; // ~1.3s
 
     // Clearance for slab-ish blocks
     private static final double BODY_CLEARANCE_MIN_Y = 0.60;
@@ -223,6 +227,14 @@ public final class PathfindScript implements Script {
     private int jumpHoldTicks = 0;
     private int jumpCooldownTicks = 0;
     private int jumpGraceTicks = 0;
+
+    // Step-up tracking (to detect repeated failed jump attempts and force a longer alternative path)
+    private BlockPos trackedStepLead = null;
+    private BlockPos trackedUpNode = null;
+    private int trackedStepFailCount = 0;
+    private int trackedStepAttemptTimer = 0;
+    private boolean forceRepathNow = false;
+    private final Set<Long> avoidedStepUpEdges = new HashSet<>();
 
     private int aoteCooldownTicks = 0;
 
@@ -364,7 +376,7 @@ public final class PathfindScript implements Script {
 
             // Repath logic (less twitchy)
             ticksSinceLastPath++;
-            boolean needRepath = currentPath.isEmpty() || ticksSinceLastPath >= REPATH_EVERY_TICKS;
+            boolean needRepath = forceRepathNow || currentPath.isEmpty() || ticksSinceLastPath >= REPATH_EVERY_TICKS;
 
             if (!needRepath && offPathRepathCooldown == 0
                     && isOffPath(player.getPos(), currentPath, pathNodeIndex, OFFPATH_MAX_DIST)) {
@@ -373,6 +385,7 @@ public final class PathfindScript implements Script {
             }
 
             if (needRepath) {
+                forceRepathNow = false;
                 ticksSinceLastPath = 0;
 
                 BlockPos segStart = snapStartToStandable(world, feetBlock(player));
@@ -566,12 +579,77 @@ public final class PathfindScript implements Script {
         return t > 0.55;
     }
 
-    // ---------------------------------------------------------------------
+        private static long edgeKey(BlockPos from, BlockPos to) {
+        // Deterministic 64-bit mixing of two BlockPos values
+        long a = from.asLong();
+        long b = to.asLong();
+        long x = a ^ (b * 0x9E3779B97F4A7C15L);
+        x ^= (x >>> 33);
+        x *= 0xC2B2AE3D27D4EB4FL;
+        x ^= (x >>> 29);
+        return x;
+    }
+    
+    private static boolean isStepUpEdgeAvoided(BlockPos from, BlockPos to) {
+        PathfindScript inst = ACTIVE_INSTANCE;
+        return inst != null && inst.avoidedStepUpEdges.contains(edgeKey(from, to));
+    }
+    
+    private void clearStepUpTracking() {
+        trackedStepLead = null;
+        trackedUpNode = null;
+        trackedStepAttemptTimer = 0;
+        trackedStepFailCount = 0;
+    }
+    
+    private void onStepUpAttemptStarted(BlockPos stepLead, BlockPos upNode) {
+        // New edge -> reset attempt counter
+        if (trackedStepLead == null || trackedUpNode == null
+                || !trackedStepLead.equals(stepLead) || !trackedUpNode.equals(upNode)) {
+            trackedStepFailCount = 0;
+        }
+        trackedStepLead = stepLead;
+        trackedUpNode = upNode;
+        trackedStepAttemptTimer = STEPUP_ATTEMPT_TIMEOUT_TICKS;
+    }
+    
+    private void updateStepUpAttemptTracking(ClientPlayerEntity player) {
+        if (trackedStepLead == null || trackedUpNode == null) return;
+    
+        // Success: we reached (or exceeded) the destination Y-level
+        if (player.getBlockPos().getY() >= trackedUpNode.getY()) {
+            clearStepUpTracking();
+            return;
+        }
+    
+        if (trackedStepAttemptTimer > 0) {
+            trackedStepAttemptTimer--;
+            return;
+        }
+    
+        // Timer expired without gaining the step-up height: treat as failure.
+        trackedStepFailCount++;
+    
+        if (trackedStepFailCount >= STEPUP_FAIL_MAX_ATTEMPTS) {
+            avoidedStepUpEdges.add(edgeKey(trackedStepLead, trackedUpNode));
+            forceRepathNow = true;
+            clearStepUpTracking();
+            return;
+        }
+    
+        // Give it another chance, but avoid tight-looping: require us to re-trigger jump.
+        trackedStepAttemptTimer = 0;
+    }
+
+// ---------------------------------------------------------------------
     // Jump logic (conservative, step-up aware)
     // ---------------------------------------------------------------------
 
     private boolean computeDesiredJump(MinecraftClient client, ClientPlayerEntity player) {
         if (client == null || client.world == null) return false;
+
+        // Detect step-up failures (e.g., too-fast approach causing repeated missed jumps) and force a longer repath.
+        updateStepUpAttemptTracking(player);
 
         if (jumpGraceTicks > 0) {
             jumpGraceTicks--;
@@ -610,7 +688,10 @@ public final class PathfindScript implements Script {
         if (stepLead == null) return false;
 
         // Must actually be near the step lead-in, otherwise do not jump yet.
-        if (distanceXZ(player.getPos(), centerOf(stepLead)) > 0.95) return false;
+        // At higher horizontal speeds, allow triggering slightly earlier to compensate for overshooting.
+        double speedXZ = new Vec3d(player.getVelocity().x, 0.0, player.getVelocity().z).length();
+        double leadProximity = 0.95 + MathHelper.clamp(speedXZ * 1.6, 0.0, 0.60);
+        if (distanceXZ(player.getPos(), centerOf(stepLead)) > leadProximity) return false;
 
         // Additional sanity: if the step-up target is not above our feet Y, do not jump.
         // (This protects against weird paths when snapped Y differs slightly.)
@@ -620,6 +701,12 @@ public final class PathfindScript implements Script {
             BlockPos up = currentPath.get(stepLeadIdx + 1);
             if (up.getY() <= py) return false;
             upNode = up;
+
+            // If we previously failed this specific step-up multiple times, avoid it and repath.
+            if (isStepUpEdgeAvoided(stepLead, upNode)) {
+                forceRepathNow = true;
+                return false;
+            }
         } else {
             return false;
         }
@@ -667,7 +754,8 @@ public final class PathfindScript implements Script {
             if (forwardXZ.dotProduct(horiz) < -0.10) return false;
         }
 
-jumpHoldTicks = JUMP_HOLD_TICKS;
+        onStepUpAttemptStarted(stepLead, upNode);
+        jumpHoldTicks = JUMP_HOLD_TICKS;
         jumpCooldownTicks = JUMP_COOLDOWN_TICKS;
         return true;
     }
@@ -1160,6 +1248,9 @@ jumpHoldTicks = JUMP_HOLD_TICKS;
     // ---------------------------------------------------------------------
 
     private void resetPathState() {
+        avoidedStepUpEdges.clear();
+        clearStepUpTracking();
+        forceRepathNow = false;
         currentPath = Collections.emptyList();
         pathNodeIndex = 0;
         currentWalkTarget = null;
@@ -1362,7 +1453,10 @@ jumpHoldTicks = JUMP_HOLD_TICKS;
                 if (stepUp) {
                     BlockPos up = o.add(dx, 1, dz);
                     if (isStandable(world, up)) {
-                        out.add(new Neighbor(up, diag ? 1.9 : 1.5));
+                        // Avoid step-ups that have been observed to fail repeatedly.
+                        if (!PathfindScript.isStepUpEdgeAvoided(o, up)) {
+                            out.add(new Neighbor(up, diag ? 1.9 : 1.5));
+                        }
                         continue;
                     }
                 }
