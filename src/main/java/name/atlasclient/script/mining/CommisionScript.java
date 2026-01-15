@@ -77,7 +77,6 @@ public final class CommisionScript implements Script {
     private static final List<Vec3d> EMISSARY_ANCHORS = List.of(
             new Vec3d(170.5, 150, 32.5),
             new Vec3d(43.5, 135, 21.5),
-            new Vec3d(88.5, 198, -92.5),
             new Vec3d(58.5, 198, -11.5),
             new Vec3d(-75.5, 153, -11.5),
             new Vec3d(-131.5, 174, -51.5)
