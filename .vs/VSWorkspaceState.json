@@ -1,0 +1,16 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\src",
+    "\\src\\main",
+    "\\src\\main\\java",
+    "\\src\\main\\java\\name",
+    "\\src\\main\\java\\name\\atlasclient",
+    "\\src\\main\\java\\name\\atlasclient\\script",
+    "\\src\\main\\java\\name\\atlasclient\\script\\intermediary",
+    "\\src\\main\\java\\name\\atlasclient\\script\\misc",
+    "\\src\\main\\java\\name\\atlasclient\\ui"
+  ],
+  "SelectedNode": "\\src\\main\\java\\name\\atlasclient\\script\\mining\\CommisionScript.java",
+  "PreviewInSolutionExplorer": false
+}

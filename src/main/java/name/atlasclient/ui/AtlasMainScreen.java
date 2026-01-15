@@ -24,18 +24,18 @@ public class AtlasMainScreen extends Screen {
 
     private enum Page { SCRIPTS, SETTINGS }
     private static Page LAST_PAGE = Page.SCRIPTS;
-    private static Tab LAST_TAB = Tab.MISC;
+    private static Tab LAST_TAB = Tab.FARMING;
     private static SettingsTab LAST_SETTINGS_TAB = SettingsTab.VISUAL;
     private Page currentPage = LAST_PAGE;
 
-    // Tabs (left nav)
     private enum Tab {
         FARMING("Farming"),
         COMBAT("Combat"),
         FORAGING("Foraging"),
         MINING("Mining"),
         FISHING("Fishing"),
-        MISC("Misc");
+        MISC("Misc"),
+        INTERMEDIARY("Intermediary");
 
         final String label;
         Tab(String label) { this.label = label; }
@@ -56,7 +56,9 @@ public class AtlasMainScreen extends Screen {
         COMBAT("Combat", false),
         FORAGING("Foraging", false),
         MINING("Mining", false),
-        FISHING("Fishing", false);
+        FISHING("Fishing", false),
+        INTERMEDIARY("Intermediary", false);
+
 
         final String label;
         final boolean divider;

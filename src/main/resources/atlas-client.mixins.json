@@ -3,7 +3,7 @@
 	"package": "name.atlasclient.mixin",
 	"refmap": "atlas-client.refmap.json",
 	"client": [
-		"ClientWorldCritParticleMixin"
+		"MixinClientPlayNetworkHandlerParticles"
 	],
 	"injectors": {
 		"defaultRequire": 0

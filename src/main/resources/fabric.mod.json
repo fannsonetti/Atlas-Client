@@ -4,7 +4,7 @@
 	"version": "${version}",
 	"name": "Atlas Client",
 	"description": "Client-side automation and scripting runtime",
-	"authors": [ "Me!" ],
+	"authors": [ "fannso" ],
 	"license": "CC0-1.0",
 	"icon": "assets/atlas-client/icon.png",
 	"environment": "client",

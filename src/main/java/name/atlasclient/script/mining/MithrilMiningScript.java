@@ -25,6 +25,9 @@ import net.minecraft.client.render.WorldRenderer;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.render.debug.DebugRenderer;
 
+import org.joml.Matrix4f;
+import org.joml.Matrix3f;
+
 import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.Set;
@@ -46,14 +49,19 @@ public final class MithrilMiningScript implements Script {
         private static boolean mineTitanium = false;
         private static boolean debugMessages = false;
 
+        // Targeting / visuals
+        private static float maxMineDistance = 4.5f; // blocks
+        private static boolean renderTargetLine = false; // removed (line tracer disabled)
+        private static boolean renderCursorMarker = true;
+
         public enum RotationType { LINEAR, BEZIER }
         private static RotationType rotationType = RotationType.BEZIER;
 
         // Speed: 0..1000 (as you requested)
-        private static int rotationSpeed = 250;
+        private static int rotationSpeed = 140;
 
         // Bezier multiplier: 0.0..2.5
-        private static float bezierSpeed = 1.0f;
+        private static float bezierSpeed = 0.65f;
 
         // Randomness: 0.0..1.0 (or change if your UI uses 0..100)
         private static float rotationRandomness = 0.0f;
@@ -62,8 +70,8 @@ public final class MithrilMiningScript implements Script {
         private static boolean critLookEnabled = true;
         private static int critMaxLooksPerSecond = 12; // 1..60
         private static int critMaxAgeMs = 350;         // drop older particles
-        private static float critMaxDistance = 10f;    // blocks
-        private static boolean critInterruptMining = false;
+        private static float critMaxDistance = 2f;    // blocks
+        private static boolean critInterruptMining = true;
 
         public static boolean isMithrilMinerEnabled() { return mithrilMinerEnabled; }
         public static void setMithrilMinerEnabled(boolean v) { mithrilMinerEnabled = v; }
@@ -76,6 +84,15 @@ public final class MithrilMiningScript implements Script {
 
         public static boolean isDebugMessages() { return debugMessages; }
         public static void setDebugMessages(boolean v) { debugMessages = v; }
+
+        public static float getMaxMineDistance() { return maxMineDistance; }
+        public static void setMaxMineDistance(float v) { maxMineDistance = clampFloat(v, 2.0f, 8.0f); }
+
+        public static boolean isRenderTargetLine() { return renderTargetLine; }
+        public static void setRenderTargetLine(boolean v) { renderTargetLine = v; }
+
+        public static boolean isRenderCursorMarker() { return renderCursorMarker; }
+        public static void setRenderCursorMarker(boolean v) { renderCursorMarker = v; }
 
         public static RotationType getRotationType() { return rotationType; }
         public static void setRotationType(RotationType t) { rotationType = (t == null) ? RotationType.BEZIER : t; }
@@ -137,6 +154,7 @@ public final class MithrilMiningScript implements Script {
     private static final int DEFAULT_RADIUS = 4;
     private static final int WALKAWAY_DIST_SQ = 9;          // 3 blocks
     private static final int BLOCK_TIMEOUT_TICKS = 80;      // ~4s at 20 TPS
+    private static final int BLACKLIST_TICKS = 60;          // skip unreachable targets for ~3s
 
     // Tier order (best -> worst)
     private static final String[] MITHRIL_TIERS = new String[] {
@@ -153,6 +171,7 @@ public final class MithrilMiningScript implements Script {
     // ---------------------------------------------------------------------
 
     private final Set<Block> targets = new HashSet<>();
+    private final java.util.HashMap<BlockPos, Integer> targetBlacklistTicks = new java.util.HashMap<>();
     private Vec3d startPos = null;
 
     private BlockPos currentTarget = null;
@@ -164,6 +183,7 @@ public final class MithrilMiningScript implements Script {
     private double lockedAimU = Double.NaN;
     private double lockedAimV = Double.NaN;
     private long lastAimShuffleNanos = 0L;
+    private int driftCooldownTicks = 0;
 
     // Last CRIT point for rendering and steering
     private Vec3d lastCritPos = null;
@@ -208,6 +228,23 @@ public final class MithrilMiningScript implements Script {
         }
     }
 
+    private static long LAST_PARTICLE_SEEN_DEBUG_NANOS = 0L;
+
+    public static void recordMiningParticle(String id, double x, double y, double z) {
+        recordCritParticle(x, y, z);
+    }
+
+    public static void debugParticleSeen(String id, double x, double y, double z) {
+        MinecraftClient c = MinecraftClient.getInstance();
+        if (c == null || c.player == null) return;
+
+        long now = System.nanoTime();
+        if (now - LAST_PARTICLE_SEEN_DEBUG_NANOS < 250_000_000L) return;
+        LAST_PARTICLE_SEEN_DEBUG_NANOS = now;
+
+        c.player.sendMessage(Text.literal("[Mithril Miner] Particle seen: " + id), false);
+    }
+
 private static int getCritQueueSize() {
     synchronized (CRIT_QUEUE) { return CRIT_QUEUE.size(); }
 }
@@ -241,7 +278,7 @@ private static CritEvent pollClosestCrit(MinecraftClient client, long nowNanos) 
                 continue;
             }
 
-            double distSq = client.player.squaredDistanceTo(ev.x, ev.y, ev.z);
+            double distSq = squaredDistanceFromEye(client.player, ev.x, ev.y, ev.z);
             if (distSq > maxDistSq) {
                 // keep (still fresh) in case player moves
                 CRIT_QUEUE.addLast(ev);
@@ -307,6 +344,29 @@ private static void ensureRenderHook() {
     WorldRenderEvents.LAST.register(MithrilMiningScript::onWorldRender);
 }
 
+
+
+/** Draw a thin debug line in world render context (RenderLayer.getLines()) */
+private static void drawLine(MatrixStack matrices, VertexConsumer vc,
+                             double x1, double y1, double z1,
+                             double x2, double y2, double z2,
+                             float r, float g, float b, float a) {
+    if (matrices == null) return;
+    MatrixStack.Entry entry = matrices.peek();
+    Matrix4f posMat = entry.getPositionMatrix();
+    float dx = (float) (x2 - x1);
+    float dy = (float) (y2 - y1);
+    float dz = (float) (z2 - z1);
+    float len = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (len < 1.0e-6f) len = 1.0f;
+    float nx = dx / len;
+    float ny = dy / len;
+    float nz = dz / len;
+
+    vc.vertex(posMat, (float) x1, (float) y1, (float) z1).color(r, g, b, a).normal(entry, nx, ny, nz);
+    vc.vertex(posMat, (float) x2, (float) y2, (float) z2).color(r, g, b, a).normal(entry, nx, ny, nz);
+}
+
 private static void onWorldRender(WorldRenderContext ctx) {
     MithrilMiningScript inst = ACTIVE_INSTANCE;
     if (inst == null) return;
@@ -332,6 +392,20 @@ private static void onWorldRender(WorldRenderContext ctx) {
     DebugRenderer.drawBox(matrices, consumers, box, 0.35f, 0.85f, 1.0f, 0.65f);
 
 
+
+// Cursor marker: small white box at the current crosshair hit position (world-space)
+if (Settings.isRenderCursorMarker()) {
+    MinecraftClient mc = MinecraftClient.getInstance();
+    if (mc != null && mc.crosshairTarget != null && mc.crosshairTarget.getType() == HitResult.Type.BLOCK) {
+        BlockHitResult bhr = (BlockHitResult) mc.crosshairTarget;
+        Vec3d hp = bhr.getPos();
+        double s = 0.03; // half-size => small cube
+        Box hb = new Box(hp.x - s, hp.y - s, hp.z - s, hp.x + s, hp.y + s, hp.z + s).offset(-cx, -cy, -cz);
+        DebugRenderer.drawBox(matrices, consumers, hb, 1.0f, 1.0f, 1.0f, 0.95f);
+    }
+}
+
+
 // CRIT highlight: small red box (20% block) around the last seen CRIT point
 if (inst.lastCritPos != null) {
     long now = System.nanoTime();
@@ -344,7 +418,7 @@ if (inst.lastCritPos != null) {
                 inst.lastCritPos.x + s, inst.lastCritPos.y + s, inst.lastCritPos.z + s
         ).offset(-cx, -cy, -cz);
 
-        DebugRenderer.drawBox(matrices, consumers, cb, 1.0f, 0.0f, 0.0f, 0.85f);
+        DebugRenderer.drawBox(matrices, consumers, cb, 1.0f, 0.0f, 0.0f, 0.45f);
     } else {
         inst.lastCritPos = null;
     }
@@ -365,6 +439,8 @@ if (inst.lastCritPos != null) {
         }
 
         if (client.player == null || client.world == null) return;
+
+        tickBlacklist();
 
         // Walk-away safety
         if (startPos != null) {
@@ -394,8 +470,8 @@ if (inst.lastCritPos != null) {
         // Acquire new target if needed
         if (currentTarget == null) {
             refreshTargets(); // in case settings changed in UI
-            currentTarget = findBestTarget(client, DEFAULT_RADIUS);
             clearAimLock();
+            currentTarget = findBestTarget(client, DEFAULT_RADIUS);
             lastCritPos = null;
             targetTicks = 0;
 
@@ -411,6 +487,18 @@ if (inst.lastCritPos != null) {
 
         // Mining logic
         targetTicks++;
+
+        // Hard distance gate: avoid selecting/attempting blocks outside reach.
+        double maxD = Settings.getMaxMineDistance();
+        double distSq = squaredDistanceFromEye(client.player, currentTarget.getX() + 0.5, currentTarget.getY() + 0.5, currentTarget.getZ() + 0.5);
+        if (distSq > maxD * maxD) {
+            client.options.attackKey.setPressed(false);
+            if (Settings.isDebugMessages()) debug(client, "Target out of range; dropping target " + currentTarget);
+            currentTarget = null;
+            clearAimLock();
+            targetTicks = 0;
+            return;
+        }
 
         // If we are rotating, optionally do not mine until close enough
         if (rotating) {
@@ -441,10 +529,8 @@ if (currentTarget != null) {
 
         Vec3d aimPoint = facePoint(currentTarget, currentTargetFace, lockedAimU, lockedAimV);
         float[] yp = computeYawPitchToPoint(client, aimPoint.x, aimPoint.y, aimPoint.z);
-        goalYaw = yp[0];
-        goalPitch = yp[1];
-        rotating = true;
-
+        // Smoothly rotate back onto the intended block aim point (avoid snapping when drifting past).
+        beginRotation(client.player.getYaw(), client.player.getPitch(), yp[0], yp[1]);
         client.options.attackKey.setPressed(false);
         return;
     }
@@ -453,17 +539,9 @@ if (currentTarget != null) {
         // Hold attack
         client.options.attackKey.setPressed(true);
 
-        // While mining, prefer steering to the closest CRIT point if available; otherwise drift toward face center.
-        updateCritLook(client, true);
-        if (currentTarget != null && currentTargetFace != null && lastCritPos == null) {
-            // Slow drift to center
-            driftAimTowardCenter(0.03);
-            Vec3d aimPoint = facePoint(currentTarget, currentTargetFace, lockedAimU, lockedAimV);
-            float[] yp = computeYawPitchToPoint(client, aimPoint.x, aimPoint.y, aimPoint.z);
-            goalYaw = yp[0];
-            goalPitch = yp[1];
-            rotating = true;
-        }
+
+// While mining, prefer steering to the closest CRIT point if available.
+updateCritLook(client, true);
 
         // Timeout failsafe
         if (targetTicks > BLOCK_TIMEOUT_TICKS) {
@@ -473,16 +551,28 @@ if (currentTarget != null) {
             targetTicks = 0;
         }
     }
+
+    private void tickBlacklist() {
+        if (targetBlacklistTicks.isEmpty()) return;
+        var it = targetBlacklistTicks.entrySet().iterator();
+        while (it.hasNext()) {
+            var e = it.next();
+            int v = e.getValue() - 1;
+            if (v <= 0) it.remove();
+            else e.setValue(v);
+        }
+    }
+
 // ---------------------------------------------------------------------
 // Face/aim sampling (prevents occlusion softlocks)
 // ---------------------------------------------------------------------
 
 private static final double[][] FACE_OFFSETS = new double[][] {
-        {0.00, 0.00},
         {0.00, 0.18}, {0.00, -0.18}, {0.18, 0.00}, {-0.18, 0.00},
         {0.18, 0.18}, {0.18, -0.18}, {-0.18, 0.18}, {-0.18, -0.18},
         {0.00, 0.32}, {0.00, -0.32}, {0.32, 0.00}, {-0.32, 0.00},
-        {0.32, 0.32}, {0.32, -0.32}, {-0.32, 0.32}, {-0.32, -0.32}
+        {0.32, 0.32}, {0.32, -0.32}, {-0.32, 0.32}, {-0.32, -0.32},
+        {0.00, 0.00}
 };
 
 private static Vec3d facePoint(BlockPos pos, Direction face, double u, double v) {
@@ -523,6 +613,14 @@ private static Vec3d facePoint(BlockPos pos, Direction face, double u, double v)
     return new Vec3d(px, py, pz);
 }
 
+private static double approach(double current, double target, double maxDelta) {
+    if (Double.isNaN(current)) return target;
+    double delta = target - current;
+    if (delta > maxDelta) delta = maxDelta;
+    if (delta < -maxDelta) delta = -maxDelta;
+    return current + delta;
+}
+
 private BlockHitResult raycastToPoint(MinecraftClient client, Vec3d point) {
     if (client == null || client.player == null || client.world == null) return null;
     Vec3d from = client.player.getCameraPosVec(1.0f);
@@ -555,42 +653,82 @@ private void clearAimLock() {
 }
 
 private boolean tryLockVisibleAim(MinecraftClient client, BlockPos target) {
-    // Rotate the starting index occasionally so we explore different points if partially occluded.
+    // Rotate the starting index occasionally so we explore different points if partially occluded,
+    // but keep it slow to avoid visible snapping.
     long now = System.nanoTime();
-    if (now - lastAimShuffleNanos > 200_000_000L) { // 5/sec
+    if (now - lastAimShuffleNanos > 1_250_000_000L) { // ~0.8/sec
         faceAimIndex = (faceAimIndex + 1) % FACE_OFFSETS.length;
         lastAimShuffleNanos = now;
     }
 
-    BlockHitResult bestHit = null;
-    Direction bestFace = null;
-    double bestU = 0, bestV = 0;
-    int bestIdx = -1;
+    float curYaw = client.player.getYaw();
+    float curPitch = client.player.getPitch();
 
-    // Try every face, but accept whatever side Minecraft reports for the hit.
+    Direction bestFace = null;
+    double bestU = Double.NaN, bestV = Double.NaN;
+    int bestIdx = -1;
+    double bestScore = Double.MAX_VALUE;
+
+    // Consider all candidate points; pick the one that is (a) actually visible via raycast
+    // and (b) requires the smallest rotation from our current view.
     for (Direction face : Direction.values()) {
-        // Prefer exposed faces, but do not require it (some servers/blocks behave oddly)
         for (int k = 0; k < FACE_OFFSETS.length; k++) {
             int idx = (faceAimIndex + k) % FACE_OFFSETS.length;
-            double u = FACE_OFFSETS[idx][0];
-            double v = FACE_OFFSETS[idx][1];
-            Vec3d p = facePoint(target, face, u, v);
+            double uCand = FACE_OFFSETS[idx][0];
+            double vCand = FACE_OFFSETS[idx][1];
 
+            Vec3d p = facePoint(target, face, uCand, vCand);
             BlockHitResult hit = raycastToPoint(client, p);
             if (hit == null) continue;
             if (!hit.getBlockPos().equals(target)) continue;
 
-            bestHit = hit;
-            bestFace = hit.getSide(); // authoritative visible face
-            bestU = u;
-            bestV = v;
-            bestIdx = idx;
-            break;
+            // Use the real hit position to avoid "always center" behavior.
+            Vec3d hp = hit.getPos();
+            Direction visibleFace = hit.getSide();
+
+            // Convert hit position into (u,v) on that visible face plane.
+            double u = 0.0, v = 0.0;
+            double dx = hp.x - (target.getX() + 0.5);
+            double dy = hp.y - (target.getY() + 0.5);
+            double dz = hp.z - (target.getZ() + 0.5);
+
+            switch (visibleFace) {
+                case UP:
+                case DOWN:
+                    u = dx;
+                    v = dz;
+                    break;
+                case NORTH:
+                case SOUTH:
+                    u = dx;
+                    v = dy;
+                    break;
+                default: // EAST/WEST
+                    u = dz;
+                    v = dy;
+                    break;
+            }
+
+            // Clamp to our sampling window to keep aim points stable and not on the extreme edge.
+            u = MathHelper.clamp(u, -0.32, 0.32);
+            v = MathHelper.clamp(v, -0.32, 0.32);
+
+            float[] yp = computeYawPitchToPoint(client, hp.x, hp.y, hp.z);
+            float yawErr = Math.abs(wrapDegrees(yp[0] - curYaw));
+            float pitchErr = Math.abs(yp[1] - curPitch);
+
+            double score = yawErr + pitchErr * 1.15; // slightly favor yaw stability
+            if (score < bestScore) {
+                bestScore = score;
+                bestFace = visibleFace;
+                bestU = u;
+                bestV = v;
+                bestIdx = idx;
+            }
         }
-        if (bestHit != null) break;
     }
 
-    if (bestHit == null) return false;
+    if (bestFace == null || Double.isNaN(bestU) || Double.isNaN(bestV)) return false;
 
     currentTargetFace = bestFace;
     lockedAimU = bestU;
@@ -603,12 +741,88 @@ private boolean tryLockVisibleAim(MinecraftClient client, BlockPos target) {
     return true;
 }
 
-private void driftAimTowardCenter(double ratePerTick) {
+private void driftAimTowardCenter(MinecraftClient client, double ratePerTick) {
+    if (client == null || client.player == null || client.world == null) return;
+    if (currentTarget == null || currentTargetFace == null) return;
     if (Double.isNaN(lockedAimU) || Double.isNaN(lockedAimV)) return;
-    lockedAimU *= (1.0 - ratePerTick);
-    lockedAimV *= (1.0 - ratePerTick);
-    if (Math.abs(lockedAimU) < 0.01) lockedAimU = 0.0;
-    if (Math.abs(lockedAimV) < 0.01) lockedAimV = 0.0;
+
+    // Prevent oscillation: if a drift step would move off-target, pause drifting briefly.
+    if (driftCooldownTicks > 0) {
+        driftCooldownTicks--;
+        return;
+    }
+
+    // Propose a very small step toward face-center (kept minimal; most aim stability comes from locking)
+    double newU = lockedAimU * (1.0 - ratePerTick);
+    double newV = lockedAimV * (1.0 - ratePerTick);
+
+    // Validate the drifted aim point: it must still raycast to the same target block.
+    Vec3d candidate = facePoint(currentTarget, currentTargetFace, newU, newV);
+    BlockHitResult hit = raycastToPoint(client, candidate);
+
+    if (hit != null && hit.getBlockPos().equals(currentTarget)) {
+        // Accept drift. Optionally keep face authoritative (it may change near edges).
+        // Keep the locked face stable; changing faces near edges causes rapid "jumping".
+        lockedAimU = newU;
+        lockedAimV = newV;
+        return;
+    }
+
+    // If full step fails, try a smaller step.
+    double newU2 = lockedAimU * (1.0 - ratePerTick * 0.5);
+    double newV2 = lockedAimV * (1.0 - ratePerTick * 0.5);
+    Vec3d candidate2 = facePoint(currentTarget, currentTargetFace, newU2, newV2);
+    BlockHitResult hit2 = raycastToPoint(client, candidate2);
+
+    if (hit2 != null && hit2.getBlockPos().equals(currentTarget)) {
+        currentTargetFace = hit2.getSide();
+        lockedAimU = newU2;
+        lockedAimV = newV2;
+        return;
+    }
+
+    // Drift would move off the block. Recover by selecting the nearest-to-center valid sample point.
+    int bestIdx = -1;
+    double bestScore = Double.MAX_VALUE;
+    Direction bestFace = currentTargetFace;
+    double bestU = lockedAimU, bestV = lockedAimV;
+
+    for (int i = 0; i < FACE_OFFSETS.length; i++) {
+        double u = FACE_OFFSETS[i][0];
+        double v = FACE_OFFSETS[i][1];
+        double du = u - lockedAimU;
+        double dv = v - lockedAimV;
+        double score = du * du + dv * dv; // smaller => closer to our current aim (prevents snapping to center)
+
+        Vec3d p = facePoint(currentTarget, currentTargetFace, u, v);
+        BlockHitResult hh = raycastToPoint(client, p);
+        if (hh == null) continue;
+        if (!hh.getBlockPos().equals(currentTarget)) continue;
+
+        if (score < bestScore) {
+            bestScore = score;
+            bestIdx = i;
+            bestFace = hh.getSide();
+            bestU = u;
+            bestV = v;
+        }
+    }
+
+    if (bestIdx != -1) {
+        currentTargetFace = bestFace;
+
+        // Move gradually toward the recovered point instead of snapping (prevents "teleporting" aim).
+        double maxStep = 0.06; // per tick
+        lockedAimU = approach(lockedAimU, bestU, maxStep);
+        lockedAimV = approach(lockedAimV, bestV, maxStep);
+
+        faceAimIndex = bestIdx;
+        // pause drifting for a moment to avoid repeated edge flipping
+        driftCooldownTicks = 8;
+    } else {
+        // No valid "more central" point exists; stop drifting temporarily.
+        driftCooldownTicks = 12;
+    }
 }
     // ---------------------------------------------------------------------
     // Targeting
@@ -663,11 +877,64 @@ private void driftAimTowardCenter(double ratePerTick) {
         return 999;
     }
 
+
+    private static final class VisibleAim {
+        final Direction face;
+        final double u;
+        final double v;
+        final int idx;
+        VisibleAim(Direction face, double u, double v, int idx) {
+            this.face = face;
+            this.u = u;
+            this.v = v;
+            this.idx = idx;
+        }
+    }
+
+    /**
+     * Probe for an actually visible aim point on any face of the target using raycasts from the eye to sample points.
+     * This does not require turning the camera, and lets us skip fully occluded/unreachable blocks immediately.
+     */
+    private VisibleAim probeVisibleAim(MinecraftClient client, BlockPos target, int startIdx) {
+        BlockHitResult bestHit = null;
+        Direction bestFace = null;
+        double bestU = 0, bestV = 0;
+        int bestIdx = -1;
+
+        for (Direction face : Direction.values()) {
+            for (int k = 0; k < FACE_OFFSETS.length; k++) {
+                int idx = (startIdx + k) % FACE_OFFSETS.length;
+                double u = FACE_OFFSETS[idx][0];
+                double v = FACE_OFFSETS[idx][1];
+                Vec3d p = facePoint(target, face, u, v);
+
+                BlockHitResult hit = raycastToPoint(client, p);
+                if (hit == null) continue;
+                if (!hit.getBlockPos().equals(target)) continue;
+
+                bestHit = hit;
+                bestFace = hit.getSide();
+                bestU = u;
+                bestV = v;
+                bestIdx = idx;
+                break;
+            }
+            if (bestHit != null) break;
+        }
+
+        if (bestHit == null) return null;
+        return new VisibleAim(bestFace, bestU, bestV, bestIdx);
+    }
+
     /**
      * Python-parity selection: find best tier present, then pick closest within that tier.
      */
     private BlockPos findBestTarget(MinecraftClient client, int radius) {
         BlockPos origin = client.player.getBlockPos();
+
+
+        double maxD = Settings.getMaxMineDistance();
+        double maxDistSq = maxD * maxD;
 
         int bestTier = Integer.MAX_VALUE;
 
@@ -676,9 +943,19 @@ private void driftAimTowardCenter(double ratePerTick) {
             for (int dy = -radius; dy <= radius; dy++) {
                 for (int dz = -radius; dz <= radius; dz++) {
                     BlockPos p = origin.add(dx, dy, dz);
+                    if (targetBlacklistTicks.containsKey(p)) continue;
                     Block b = client.world.getBlockState(p).getBlock();
                     if (!targets.contains(b)) continue;
                     if (!touchesAir(client, p)) continue;
+                    double d = squaredDistanceFromEye(client.player, p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5);
+                    if (d > maxDistSq) continue;
+
+                    // Skip blocks with no currently visible aim point (prevents counterproductive snap-to-test behavior)
+                    if (probeVisibleAim(client, p, faceAimIndex) == null) {
+                        targetBlacklistTicks.put(p, BLACKLIST_TICKS);
+                        continue;
+                    }
+
                     int t = priority(b);
                     if (t < bestTier) bestTier = t;
                 }
@@ -695,15 +972,29 @@ private void driftAimTowardCenter(double ratePerTick) {
             for (int dy = -radius; dy <= radius; dy++) {
                 for (int dz = -radius; dz <= radius; dz++) {
                     BlockPos p = origin.add(dx, dy, dz);
+                    if (targetBlacklistTicks.containsKey(p)) continue;
                     Block b = client.world.getBlockState(p).getBlock();
                     if (!targets.contains(b)) continue;
                     if (!touchesAir(client, p)) continue;
                     if (priority(b) != bestTier) continue;
 
-                    double d = client.player.squaredDistanceTo(p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5);
+                    double d = squaredDistanceFromEye(client.player, p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5);
+                    if (d > maxDistSq) continue;
+                    VisibleAim va = probeVisibleAim(client, p, faceAimIndex);
+                    if (va == null) {
+                        targetBlacklistTicks.put(p, BLACKLIST_TICKS);
+                        continue;
+                    }
+
                     if (d < bestDistSq) {
                         bestDistSq = d;
                         best = p;
+
+                        // Pre-lock the aim point so we do not need to "look at" the block to know the face.
+                        currentTargetFace = va.face;
+                        lockedAimU = va.u;
+                        lockedAimV = va.v;
+                        faceAimIndex = va.idx;
                     }
                 }
             }
@@ -775,8 +1066,8 @@ private void driftAimTowardCenter(double ratePerTick) {
         float mult = Settings.getBezierSpeed();     // 0.10..2.50
 
         // Convert to dt: ~0.02..0.20 per tick, scaled by multiplier
-        float base = 0.02f + (speed / 100f) * 0.18f;
-        float dt = MathHelper.clamp(base * mult, 0.02f, 0.28f);
+        float base = 0.012f + (speed / 100f) * 0.10f;
+        float dt = MathHelper.clamp(base * mult, 0.010f, 0.14f);
 
         rotT = Math.min(1f, rotT + dt);
 
@@ -797,7 +1088,7 @@ private void driftAimTowardCenter(double ratePerTick) {
     private static float linearMaxStepPerTick(int speed0to100) {
         // 0 -> 2 deg/tick, 100 -> 18 deg/tick (tweakable)
         float s = MathHelper.clamp(speed0to100 / 100f, 0f, 1f);
-        return 2f + 16f * s;
+        return 1.4f + 10.0f * s;
     }
 
     private static float easeInOutCubic(float t) {
@@ -826,8 +1117,8 @@ private void driftAimTowardCenter(double ratePerTick) {
 
     private float[] computeYawPitchToPoint(MinecraftClient client, double tx, double ty, double tz) {
         double px = client.player.getX();
-        double py = client.player.getEyeY();
-        double pz = client.player.getZ();
+        double py = client.player.getY() + 1.5;
+double pz = client.player.getZ();
 
         double dx = tx - px;
         double dy = ty - py;
@@ -838,6 +1129,18 @@ private void driftAimTowardCenter(double ratePerTick) {
         double pitch = -Math.toDegrees(Math.atan2(dy, horiz));
 
         return new float[] { (float) yaw, (float) pitch };
+    }
+
+    /**
+     * Squared distance from the player's eye reference point to a world coordinate.
+     * Uses a fixed eye offset (player.getY() + 1.5) as requested.
+     */
+    private static double squaredDistanceFromEye(ClientPlayerEntity player, double x, double y, double z) {
+        if (player == null) return Double.POSITIVE_INFINITY;
+        double dx = x - player.getX();
+        double dy = y - (player.getY() + 1.5);
+        double dz = z - player.getZ();
+        return dx*dx + dy*dy + dz*dz;
     }
 
     // ---------------------------------------------------------------------
@@ -866,7 +1169,7 @@ private void driftAimTowardCenter(double ratePerTick) {
         long ageMs = (now - ev.tNanos) / 1_000_000L;
         if (ageMs > Settings.getCritMaxAgeMs()) return;
 
-        double distSq = client.player.squaredDistanceTo(ev.x, ev.y, ev.z);
+        double distSq = squaredDistanceFromEye(client.player, ev.x, ev.y, ev.z);
         double maxD = Settings.getCritMaxDistance();
         if (distSq > maxD * maxD) return;
 
