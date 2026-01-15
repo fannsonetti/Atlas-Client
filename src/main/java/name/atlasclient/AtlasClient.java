@@ -35,7 +35,7 @@ public class AtlasClient implements ClientModInitializer {
         name.atlasclient.script.mining.MithrilMiningScript mithril = new name.atlasclient.script.mining.MithrilMiningScript();
         name.atlasclient.script.mining.CommisionScript commision = new name.atlasclient.script.mining.CommisionScript();
         name.atlasclient.script.mining.OreMiningScript ore = new name.atlasclient.script.mining.OreMiningScript();
-        name.atlasclient.script.combat.GraveyardScr
+        name.atlasclient.script.combat.GraveyardScript graveyard = new name.atlasclient.script.combat.GraveyardScript();
         name.atlasclient.script.misc.PathfindScript pathfind = new name.atlasclient.script.misc.PathfindScript();
         name.atlasclient.script.intermediary.DrillRefueler drillRefueler = new name.atlasclient.script.intermediary.DrillRefueler();
 
@@ -47,6 +47,7 @@ public class AtlasClient implements ClientModInitializer {
         ScriptManager.register(commision);
         ScriptManager.register(mithril);
         ScriptManager.register(ore);
+        ScriptManager.register(graveyard);
         ScriptManager.register(pathfind);
         ScriptManager.register(drillRefueler);
 
