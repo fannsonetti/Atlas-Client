@@ -3,6 +3,8 @@ package name.atlasclient.ui;
 import name.atlasclient.script.Script;
 import name.atlasclient.script.ScriptManager;
 import name.atlasclient.script.mining.MithrilMiningScript;
+import name.atlasclient.config.ConfigManager;
+import name.atlasclient.config.ConfigSection;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -49,6 +51,7 @@ public class AtlasMainScreen extends Screen {
         FAILSAFE("Failsafe", false),
         REWARPER("Rewarper", false),
         AUTO_DIRECTION("Rotation", false),
+        DEV("Dev", false),
 
         DIVIDER("", true),
 
@@ -106,6 +109,30 @@ public class AtlasMainScreen extends Screen {
     private AtlasFloatSlider bezierSpeedSlider;
     private AtlasFloatSlider randomnessSlider;
 
+    // Dev settings widgets (Settings → Dev)
+    private AtlasToggleButton devDebugBtn;
+
+    /**
+     * Fallback dev settings.
+     *
+     * The upstream project historically referenced {@code name.atlasclient.config.Dev} for a small
+     * set of developer-only toggles. If that class is absent (e.g., stripped from a release build
+     * or refactored), the UI should still compile and remain functional.
+     *
+     * This class is intentionally minimal and scoped to the UI layer.
+     */
+    private static final class DevSettings {
+        private static boolean debugMessages = false;
+
+        private static boolean isDebugMessages() {
+            return debugMessages;
+        }
+
+        private static void setDebugMessages(boolean enabled) {
+            debugMessages = enabled;
+        }
+    }
+
     // Script cards
     private static final int CARD_H = 34;
     private static final int CARD_GAP = 8;
@@ -125,6 +152,14 @@ public class AtlasMainScreen extends Screen {
     public AtlasMainScreen(Screen parent) {
         super(Text.literal("Atlas Client"));
         this.parent = parent;
+    }
+
+    /**
+     * Public wrapper around Screen.addDrawableChild(...).
+     * Screen's method is protected, so external config sections cannot call it directly.
+     */
+    public <T extends net.minecraft.client.gui.Element & net.minecraft.client.gui.Drawable & net.minecraft.client.gui.Selectable> T atlasAddDrawableChild(T child) {
+        return this.addDrawableChild(child);
     }
 
     @Override
@@ -180,11 +215,7 @@ public class AtlasMainScreen extends Screen {
 
         // Add settings widgets for the active settings tab
         if (this.currentPage == Page.SETTINGS) {
-            if (this.selectedSettingsTab == SettingsTab.MINING) {
-                addMiningSettingsWidgets();
-            } else if (this.selectedSettingsTab == SettingsTab.AUTO_DIRECTION) {
-                addRotationSettingsWidgets();
-            }
+            addDynamicSettingsWidgets();
         }
     }
     @Override
@@ -530,6 +561,66 @@ private void addRotationSettingsWidgets() {
     this.bezierSpeedSlider.active = bezier;
 }
 
+private void addDevSettingsWidgets() {
+    int rightX = this.panelX + this.leftAreaW + PADDING;
+    int rightY = this.panelY + PADDING + 18;
+    int rightW = this.panelW - this.leftAreaW - (PADDING * 2);
+
+    int cardX = rightX;
+    int cardY = rightY + 24;
+    int cardW = rightW;
+
+    int pad = 10;
+    int rowH = 56;
+
+    int x = cardX + pad;
+    int w = cardW - (pad * 2);
+    int y = cardY + 34;
+
+    this.devDebugBtn = addDrawableChild(new AtlasToggleButton(
+            x, y, w, rowH,
+            DevSettings::isDebugMessages,
+            DevSettings::setDebugMessages,
+            "ON", "OFF",
+            "Debug Messages",
+            "Show debug messages in chat"
+    ));
+}
+
+private void addDynamicSettingsWidgets() {
+    String tabId = this.selectedSettingsTab.name();
+    List<ConfigSection> sections = ConfigManager.getSectionsForTab(tabId);
+
+    // Fallback to legacy hardcoded widgets when no dynamic sections exist
+    if (sections.isEmpty()) {
+        if (this.selectedSettingsTab == SettingsTab.MINING) {
+            addMiningSettingsWidgets();
+        } else if (this.selectedSettingsTab == SettingsTab.AUTO_DIRECTION) {
+            addRotationSettingsWidgets();
+        } else if (this.selectedSettingsTab == SettingsTab.DEV) {
+            addDevSettingsWidgets();
+        }
+        return;
+    }
+
+    int rightX = this.panelX + this.leftAreaW + PADDING;
+    int rightY = this.panelY + PADDING + 18;
+    int rightW = this.panelW - this.leftAreaW - (PADDING * 2);
+
+    int cardX = rightX;
+    int cardY = rightY + 24;
+    int cardW = rightW;
+
+    int gap = 10;
+    int defaultCardH = 34 + (56 + 10) * 2 + 14;
+
+    for (ConfigSection section : sections) {
+        section.buildWidgets(this, cardX, cardY, cardW);
+        cardY += defaultCardH + gap;
+    }
+}
+
+
 // ---------------------------------------------------------------------
 // Custom widgets (non-vanilla look & feel)
 // ---------------------------------------------------------------------
@@ -543,16 +634,16 @@ private interface FloatGetter { float get(); }
 @FunctionalInterface
 private interface FloatSetter { void set(float v); }
 @FunctionalInterface
-private interface BoolGetter { boolean get(); }
+public interface BoolGetter { boolean get(); }
 @FunctionalInterface
-private interface BoolSetter { void set(boolean v); }
+public interface BoolSetter { void set(boolean v); }
 @FunctionalInterface
 private interface EnabledSupplier { boolean isEnabled(); }
 
 private static int clampInt(int v, int min, int max) { return Math.max(min, Math.min(max, v)); }
 private static float clampFloat(float v, float min, float max) { return Math.max(min, Math.min(max, v)); }
 
-private static final class AtlasToggleButton extends ClickableWidget {
+public static final class AtlasToggleButton extends ClickableWidget {
     private final BoolGetter getter;
     private final BoolSetter setter;
     private final String trueLabel;
@@ -560,7 +651,7 @@ private static final class AtlasToggleButton extends ClickableWidget {
     private final String title;
     private final String subtitle;
 
-    AtlasToggleButton(int x, int y, int w, int h,
+    public AtlasToggleButton(int x, int y, int w, int h,
                       BoolGetter getter, BoolSetter setter,
                       String trueLabel, String falseLabel,
                       String title, String subtitle) {
@@ -842,6 +933,22 @@ private void renderSettingsPage(DrawContext context, int x, int y, int w) {
         int cardY = y + 24;
         int cardW = w;
 
+        // Dynamic sections (feature-provided)
+        String tabId = this.selectedSettingsTab.name();
+        List<ConfigSection> sections = ConfigManager.getSectionsForTab(tabId);
+        if (!sections.isEmpty()) {
+            int gap = 10;
+            int cardH = 34 + (56 + 10) * 2 + 14; // default visual height for 2 toggle rows
+
+            for (ConfigSection section : sections) {
+                drawRoundedRect(context, cardX, cardY, cardW, cardH, 9, 0xCC0B0B0B);
+                context.drawTextWithShadow(this.textRenderer, Text.literal(section.title()), cardX + 10, cardY + 10, 0xFFFFFF);
+                cardY += cardH + gap;
+            }
+            return;
+        }
+
+        // Legacy hardcoded sections (kept for backwards compatibility)
         if (this.selectedSettingsTab == SettingsTab.MINING) {
             int cardH = 34 + (56 + 10) * 3 + 14; // header + 3 tiles + padding
             drawRoundedRect(context, cardX, cardY, cardW, cardH, 9, 0xCC0B0B0B);
@@ -856,10 +963,19 @@ private void renderSettingsPage(DrawContext context, int x, int y, int w) {
             return;
         }
 
+        if (this.selectedSettingsTab == SettingsTab.DEV) {
+            int cardH = 34 + (56 + 10) * 1 + 14; // header + 1 tile + padding
+            drawRoundedRect(context, cardX, cardY, cardW, cardH, 9, 0xCC0B0B0B);
+            context.drawTextWithShadow(this.textRenderer, Text.literal("Dev"), cardX + 10, cardY + 10, 0xFFFFFF);
+            return;
+        }
+
         // Other settings tabs not yet implemented
         drawRoundedRect(context, cardX, cardY, cardW, 120, 9, 0xCC0B0B0B);
         context.drawTextWithShadow(this.textRenderer, Text.literal(this.selectedSettingsTab.label), cardX + 10, cardY + 10, 0xFFFFFF);
 }
+
+
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {

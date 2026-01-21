@@ -5,13 +5,20 @@ import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.client.render.BufferBuilder;
+import net.minecraft.client.render.RenderLayer;
+import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
+import net.minecraft.client.render.VertexFormats;
+import net.minecraft.client.render.WorldRenderer;
 import net.minecraft.client.render.debug.DebugRenderer;
 import net.minecraft.client.util.math.MatrixStack;
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.*;
+import org.joml.Matrix4f;
 import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.world.RaycastContext;
 import net.minecraft.world.World;
@@ -44,9 +51,91 @@ public final class PathfindScript implements Script {
 
     private boolean enabled = false;
     @Override public boolean isEnabled() { return enabled; }
-    @Override public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    @Override public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+        if (enabled) {
+            ACTIVE_INSTANCE = this;
+            ensureRenderHook();
+        } else {
+            if (ACTIVE_INSTANCE == this) ACTIVE_INSTANCE = null;
+            releaseKeys();
+        }
+    }
 
     private static PathfindScript ACTIVE_INSTANCE = null;
+
+    // ---------------------------------------------------------------------
+    // Runtime state (restored)
+    // ---------------------------------------------------------------------
+
+    private Vec3d finalTargetCenter = null;
+    private BlockPos finalTargetBlock = null;
+
+    private BlockPos macroGoalBlock = null;
+    private Vec3d macroGoalCenter = null;
+
+    private List<BlockPos> currentPath = Collections.emptyList();
+    private int pathNodeIndex = 0;
+
+    private Vec3d currentWalkTarget = null;
+    private BlockPos currentSegmentGoal = null;
+
+    private final List<BlockPos> routeCheckpoints = new ArrayList<>();
+    private int checkpointIndex = 0;
+    private boolean checkpointsReady = false;
+
+    private int ticksSinceLastPath = 0;
+    private int offPathRepathCooldown = 0;
+    private boolean forceRepathNow = false;
+
+    private Runnable onArrived = null;
+
+    // Desired input states
+    private boolean desiredForward = false;
+    private boolean desiredBack = false;
+    private boolean desiredLeft = false;
+    private boolean desiredRight = false;
+    private boolean desiredJump = false;
+    private boolean desiredSneak = false;
+    private boolean lastForward = false;
+
+    // Jump state
+    private int jumpHoldTicks = 0;
+    private int jumpCooldownTicks = 0;
+    private int jumpGraceTicks = 0;
+
+    // Momentum control
+    private int brakeTapTicksRemaining = 0;
+
+    // AoTE (optional)
+    private static final boolean ENABLE_AOTE = false;
+    private static final String AOTE_NAME = "Aspect of the End";
+    private static final int AOTE_COOLDOWN_TICKS = 14;
+    private static final int AOTE_FORWARD_LOOKAHEAD_NODES = 18;
+    private static final double AOTE_MIN_DIST_TO_USE = 9.0;
+    private static final double AOTE_RAYCAST_RANGE = 13.0;
+    private static final float AOTE_MAX_YAW_ERROR_DEG = 15.0f;
+    private int aoteCooldownTicks = 0;
+
+    // Step-up failure tracking
+    private final Set<Long> avoidedStepUpEdges = new HashSet<>();
+    private BlockPos trackedStepLead = null;
+    private BlockPos trackedUpNode = null;
+    private int trackedStepAttemptTimer = 0;
+    private int trackedStepFailCount = 0;
+
+    // Render hook
+    private static boolean RENDER_HOOK_REGISTERED = false;
+
+    // Visual ribbon color (ARGB 0xFF3D7294)
+    private static final int PATH_COLOR_ARGB = 0xFF3D7294; // requested
+    private static final float PATH_A = ((PATH_COLOR_ARGB >>> 24) & 0xFF) / 255.0f;
+    private static final float PATH_R = ((PATH_COLOR_ARGB >>> 16) & 0xFF) / 255.0f;
+    private static final float PATH_G = ((PATH_COLOR_ARGB >>>  8) & 0xFF) / 255.0f;
+    private static final float PATH_B = ((PATH_COLOR_ARGB       ) & 0xFF) / 255.0f;
+    private static final float NODE_RADIUS = 0.24f;
+    private static final int NODE_SEGS = 16;
+    private static final double FLOOR_RIBBON_Y_OFFSET = 0.02; // visible above floor
 
     // ---------------------------------------------------------------------
     // Public API
@@ -101,15 +190,29 @@ public final class PathfindScript implements Script {
     // "Reached goal" threshold used only for checkpoint/segment completion (not for node stepping)
     private static final double GOAL_REACH_DIST = 1.15;
 
+
+    // Tighter, height-aware checkpoint completion (prevents early stop next to ledges / corners)
+    private static final double CHECKPOINT_REACH_DIST = 0.55;
+    private static final double CHECKPOINT_FEET_Y_EPS = 0.30;
     // Only stop near the real goal
     private static final double STOP_GOAL_DIST = 0.95;
+
+    // Deceleration near checkpoint/segment end.
+    // SLOWDOWN_DIST_FINAL: hold crouch to add friction and reduce overshoot/circling.
+    // BRAKE_DIST_FINAL: briefly tap back to bleed residual momentum if still moving.
+    private static final double SLOWDOWN_DIST_FINAL = 2.25;
+    private static final double SLOWDOWN_DIST_FINAL_CHECKPOINT = 1.20;
+    private static final double BRAKE_DIST_FINAL = 0.0; // disabled (prevents end-point oscillation)
+    private static final double BRAKE_DIST_FINAL_CHECKPOINT = 0.0;
+    private static final int BRAKE_TAP_TICKS = 3;
 
     // Require vertical agreement before declaring "stop/arrived".
     // This prevents the macro from stopping under an elevated target (common when a ledge fall occurs).
     private static final double STOP_GOAL_FEET_Y_EPS = 0.35;
 
     // Repath
-    private static final int REPATH_EVERY_TICKS = 40;
+    // Repath cadence (requested: every 10 ticks)
+    private static final int REPATH_EVERY_TICKS = 10;
     private static final int OFFPATH_REPATH_COOLDOWN_TICKS = 35;
 
     // A*
@@ -117,7 +220,8 @@ public final class PathfindScript implements Script {
     private static final int MAX_RANGE = 170;
 
     // Macro segments
-    private static final int MACRO_STEP = 155;
+    // Long-distance friendliness (requested: 100 block radius)
+    private static final int MACRO_STEP = 100;
     private static final int MACRO_SNAP_SEARCH_RADIUS = 10;
 
     // Movement topology
@@ -139,11 +243,14 @@ public final class PathfindScript implements Script {
 
     // Rendering (visible)
     private static final int RENDER_MAX_WHITE_NODES = 220;
-    private static final boolean RENDER_ONE_Y_LOWER = false;
+    // Maximum number of corner marker blocks to render for a path (start/end included).
+    private static final int CORNER_MARK_MAX = 64;
+    // Render checkpoint boxes one block lower than the walk target.
+    private static final boolean RENDER_ONE_Y_LOWER = true;
 
-    private static final float WHITE_R = 1.0f, WHITE_G = 1.0f, WHITE_B = 1.0f, WHITE_A = 0.60f;
-    private static final float GOAL_R  = 0.20f, GOAL_G  = 1.00f, GOAL_B  = 0.20f, GOAL_A  = 0.75f;
-    private static final float DEST_R  = 1.00f, DEST_G  = 0.15f, DEST_B  = 0.15f, DEST_A  = 0.75f;
+    private static final float WHITE_R = 0.0f, WHITE_G = 1.0f, WHITE_B = 1.0f, WHITE_A = 0.55f; // aqua
+private static final float GOAL_R  = 0.0f, GOAL_G  = 1.0f, GOAL_B  = 1.0f, GOAL_A  = 0.80f; // aqua
+private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_A  = 0.80f; // aqua
 
     // Visual overlay: target is ~1.01x a block (avoid 1.1x-1.2x appearance).
     // Box.expand(e) expands on both sides: final size = 1.0 + 2e.
@@ -185,290 +292,281 @@ public final class PathfindScript implements Script {
 
     // Progress window
     private static final int PATH_INDEX_FORWARD_WINDOW = 10;
-
-    // Carrot lookahead (forgiving "next path part")
-    private static final int CARROT_NODES = 4;
-
-    // AoTE
-    private static final String AOTE_NAME = "Aspect of the End";
-    private static final int AOTE_FORWARD_LOOKAHEAD_NODES = 6;
-    private static final double AOTE_MIN_DIST_TO_USE = 7.2;
-    private static final double AOTE_RAYCAST_RANGE = 8.6;
-    private static final int AOTE_COOLDOWN_TICKS = 14;
-    private static final float AOTE_MAX_YAW_ERROR_DEG = 10.0f;
-
+ 
     // ---------------------------------------------------------------------
-    // State
+    // Main tick entrypoint (Script runner calls this each client tick)
     // ---------------------------------------------------------------------
 
-    private Vec3d finalTargetCenter = DEFAULT_TARGET_CENTER;
-    private BlockPos finalTargetBlock = blockFromCenter(DEFAULT_TARGET_CENTER);
-
-    private Vec3d macroGoalCenter = null;
-    private BlockPos macroGoalBlock = null;
-
-    private List<BlockPos> routeCheckpoints = new ArrayList<>();
-    private int checkpointIndex = 0;
-    private boolean checkpointsReady = false;
-
-    private List<BlockPos> currentPath = Collections.emptyList();
-    private int pathNodeIndex = 0;
-
-    private BlockPos currentWalkTarget = null;
-    private BlockPos currentSegmentGoal = null;
-
-    private int ticksSinceLastPath = 0;
-    private int offPathRepathCooldown = 0;
-
-    private Runnable onArrived = null;
-
-    private static boolean RENDER_HOOK_REGISTERED = false;
-
-    private int jumpHoldTicks = 0;
-    private int jumpCooldownTicks = 0;
-    private int jumpGraceTicks = 0;
-
-    // Step-up tracking (to detect repeated failed jump attempts and force a longer alternative path)
-    private BlockPos trackedStepLead = null;
-    private BlockPos trackedUpNode = null;
-    private int trackedStepFailCount = 0;
-    private int trackedStepAttemptTimer = 0;
-    private boolean forceRepathNow = false;
-    private final Set<Long> avoidedStepUpEdges = new HashSet<>();
-
-    private int aoteCooldownTicks = 0;
-
-    // Key stability
-    private boolean lastForward = false;
-
     // ---------------------------------------------------------------------
-    // Script lifecycle
+    // Script lifecycle compatibility (Fix A)
     // ---------------------------------------------------------------------
 
     @Override
     public void onEnable(MinecraftClient client) {
-        this.enabled = true;
-        ACTIVE_INSTANCE = this;
-        ensureRenderHook();
-
-        resetPathState();
-        checkpointsReady = false;
-
+        // Ensure state is safe on enable; avoid jump spam right after enabling.
         jumpGraceTicks = JUMP_GRACE_TICKS_ON_START;
-        jumpHoldTicks = 0;
-        jumpCooldownTicks = 0;
-
-        aoteCooldownTicks = 0;
-        lastForward = false;
-
-        if (client != null && client.player != null) {
-            client.player.sendMessage(Text.literal("PathfindScript enabled."), false);
-        }
+        ensureRenderHook();
     }
 
     @Override
     public void onDisable() {
-        this.enabled = false;
-        if (ACTIVE_INSTANCE == this) ACTIVE_INSTANCE = null;
-
+        cancelNavigation();
         releaseKeys();
-        resetPathState();
-
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client != null && client.player != null) {
-            client.player.sendMessage(Text.literal("PathfindScript disabled."), false);
-        }
     }
-
-    // ---------------------------------------------------------------------
-    // Tick
-    // ---------------------------------------------------------------------
 
     @Override
     public void onTick(MinecraftClient client) {
+        // Atlas ScriptManager ticks scripts via onTick(...).
+        // Delegate to the existing run(...) tick loop to preserve behavior.
+        run(client);
+    }
+
+
+    // Some Atlas builds use a Script interface that does not declare run(MinecraftClient).
+    // Keep the method (it is how this script is executed), but do not mark it as @Override.
+    public void run(MinecraftClient client) {
         if (!enabled) return;
-        if (client == null || client.player == null || client.world == null || client.options == null) return;
+        if (client == null || client.player == null || client.world == null) {
+            releaseKeys();
+            return;
+        }
 
-        boolean desiredForward = lastForward; // sticky: do not drop W on one bad tick
-        boolean desiredJump = false;
+        ClientPlayerEntity player = client.player;
+        World world = client.world;
 
-        try {
-            ClientPlayerEntity player = client.player;
-            World world = client.world;
+        if (finalTargetCenter == null || finalTargetBlock == null) {
+            // If no destination is set, default to a configured point.
+            navigateTo(DEFAULT_TARGET_CENTER);
+        }
 
-            if (!isNavigating()) {
-                desiredForward = false;
-                lastForward = false;
-                currentWalkTarget = null;
-                currentSegmentGoal = null;
-                return;
-            }
+        // Cooldowns
+        if (offPathRepathCooldown > 0) offPathRepathCooldown--;
+        if (aoteCooldownTicks > 0) aoteCooldownTicks--;
 
-            if (offPathRepathCooldown > 0) offPathRepathCooldown--;
-            if (aoteCooldownTicks > 0) aoteCooldownTicks--;
+        BlockPos startFeet = snapStartToStandable(world, feetBlock(player));
+        if (startFeet == null) {
+            releaseKeys();
+            return;
+        }
 
-            // Snap start
-            BlockPos start = snapStartToStandable(world, feetBlock(player));
-            if (start == null) return;
+        // Segment goal (100 block radius for long distances)
+        BlockPos segmentEnd = ensureMacroGoal(world, startFeet, finalTargetBlock);
+        if (segmentEnd == null) {
+            releaseKeys();
+            return;
+        }
 
-            // Determine macro segment end (may be final)
-            BlockPos segmentEnd = ensureMacroGoal(world, start, finalTargetBlock);
-            if (segmentEnd == null) return;
+        // Completion: only stop at true destination
+        if (isAtStopGoal(player, finalTargetBlock)) {
+            finishRun(client);
+            return;
+        }
 
-            // Segment complete?
-            // For the final target, do NOT use the forgiving XZ-only check; require vertical agreement.
-            boolean segmentDone = segmentEnd.equals(finalTargetBlock)
-                    ? isAtStopGoal(player, segmentEnd)
-                    : isAtGoalXZ(player.getPos(), segmentEnd);
+        // Checkpoint progression
+        BlockPos checkpointGoal = getCurrentCheckpointGoal(segmentEnd);
+        currentSegmentGoal = checkpointGoal;
 
-            if (segmentDone) {
-                if (segmentEnd.equals(finalTargetBlock)) {
-                    finishRun(client);
-                    desiredForward = false;
-                    lastForward = false;
-                    return;
-                }
-                // Advance macro segment
-                macroGoalBlock = null;
-                macroGoalCenter = null;
-
-                routeCheckpoints.clear();
-                checkpointIndex = 0;
-                checkpointsReady = false;
-
-                resetPathState();
-                desiredForward = false;
-                lastForward = false;
-                return;
-            }
-
-            // Build checkpoints + initial path for this segment
-            if (!checkpointsReady) {
-                List<BlockPos> segPath = AStar.find(world, start, segmentEnd,
-                        MAX_RANGE, MAX_ITERATIONS,
-                        ALLOW_DIAGONALS, ALLOW_STEP_UP, ALLOW_DROP_DOWN, MAX_DROP_DOWN);
-
-                if (segPath.isEmpty()) return;
-
-                routeCheckpoints = generateSparseCheckpointsFromRawPath(segPath, segmentEnd);
-                checkpointIndex = 0;
-                checkpointsReady = true;
-
-                currentPath = segPath;
-                pathNodeIndex = 0;
-                ticksSinceLastPath = 0;
-
-                // Seed walk target
-                currentWalkTarget = currentPath.get(Math.min(1, currentPath.size() - 1));
-            }
-
-            // Determine checkpoint goal inside this segment
-            BlockPos checkpointGoal = getCurrentCheckpointGoal(segmentEnd);
-            currentSegmentGoal = checkpointGoal;
-
-            // If we reached current checkpoint, advance
-            if (checkpointGoal != null && isAtGoalXZ(player.getPos(), checkpointGoal)) {
+        if (checkpointGoal != null && isAtGoalXZ(world, player, checkpointGoal)) {
+            if (checkpointIndex < routeCheckpoints.size()) {
                 checkpointIndex++;
-                ticksSinceLastPath = REPATH_EVERY_TICKS; // encourage a refresh after checkpoint
-                checkpointGoal = getCurrentCheckpointGoal(segmentEnd);
-                currentSegmentGoal = checkpointGoal;
+            } else {
+                // End of current segment
+                if (segmentEnd.equals(finalTargetBlock)) {
+                    // We'll finish when stop-goal triggers (stricter).
+                } else {
+                    // Advance macro segment.
+                    macroGoalBlock = null;
+                    macroGoalCenter = null;
+                }
+                // Force fresh path/checkpoints for the next segment.
+                checkpointsReady = false;
+                currentPath = Collections.emptyList();
+                pathNodeIndex = 0;
             }
+        }
 
-            // Repath logic (less twitchy)
+        // Repath triggers
+        boolean shouldRepath = forceRepathNow;
+        if (!shouldRepath) {
             ticksSinceLastPath++;
-            boolean needRepath = forceRepathNow || currentPath.isEmpty() || ticksSinceLastPath >= REPATH_EVERY_TICKS;
+            if (ticksSinceLastPath >= REPATH_EVERY_TICKS) shouldRepath = true;
+        }
 
-            if (!needRepath && offPathRepathCooldown == 0
-                    && isOffPath(player.getPos(), currentPath, pathNodeIndex, OFFPATH_MAX_DIST)) {
-                needRepath = true;
+        if (!shouldRepath && offPathRepathCooldown <= 0) {
+            if (isOffPath(player.getPos(), currentPath, pathNodeIndex, OFFPATH_MAX_DIST)) {
+                shouldRepath = true;
                 offPathRepathCooldown = OFFPATH_REPATH_COOLDOWN_TICKS;
             }
+        }
 
-            if (needRepath) {
-                forceRepathNow = false;
-                ticksSinceLastPath = 0;
+        if (shouldRepath) {
+            forceRepathNow = false;
+            ticksSinceLastPath = 0;
 
-                BlockPos segStart = snapStartToStandable(world, feetBlock(player));
-                if (segStart == null) return;
+            // Compute fresh path to the current checkpoint goal.
+            BlockPos goal = (currentSegmentGoal != null) ? currentSegmentGoal : segmentEnd;
+            List<BlockPos> raw;
 
-                BlockPos goal = (currentSegmentGoal != null) ? currentSegmentGoal : segmentEnd;
-
-                List<BlockPos> newPath = AStar.find(world, segStart, goal,
-                        MAX_RANGE, MAX_ITERATIONS,
+            // Direct-path shortcut: if the corridor is clear and walkable (common in superflat / open fields),
+            // skip A* and generate a straight-line path to eliminate unnecessary diagonal-then-straight patterns.
+            if (isDirectWalkable(world, startFeet, goal)) {
+                raw = buildDirectLinePath(startFeet, goal);
+            } else {
+                raw = AStar.find(world, startFeet, goal, MAX_RANGE, MAX_ITERATIONS,
                         ALLOW_DIAGONALS, ALLOW_STEP_UP, ALLOW_DROP_DOWN, MAX_DROP_DOWN);
+            }
 
-                if (!newPath.isEmpty()) {
-                    currentPath = newPath;
-                    pathNodeIndex = 0;
-                    currentWalkTarget = currentPath.get(Math.min(1, currentPath.size() - 1));
+            if (raw != null && !raw.isEmpty()) {
+                currentPath = raw;
+                pathNodeIndex = 0;
+                currentWalkTarget = null;
+
+                routeCheckpoints.clear();
+                routeCheckpoints.addAll(generateSparseCheckpointsFromRawPath(raw, goal));
+                checkpointIndex = 0;
+                checkpointsReady = true;
+            }
+        }
+
+        // If no path, do not press keys.
+        if (currentPath == null || currentPath.isEmpty()) {
+            releaseKeys();
+            return;
+        }
+
+        // Progress index (for jump logic + LOS lookahead)
+        updatePathIndexForgiving(player.getPos(), world);
+
+        // Select a safe LOS target along the path (body-safe, not just eye ray)
+        BlockPos los = selectLineOfSightTarget(world, player, currentPath, pathNodeIndex);
+        if (los != null) {
+            currentWalkTarget = centerOf(los);
+        }
+
+        // Compute desired movement keys (A/D corridor steering)
+        computeDesiredMovement(client, player, startFeet, segmentEnd);
+
+        // Apply keys
+        applyKeys(client);
+    }
+
+    private void applyKeys(MinecraftClient client) {
+        if (client == null || client.options == null) return;
+
+        client.options.forwardKey.setPressed(desiredForward);
+        client.options.backKey.setPressed(desiredBack);
+        client.options.leftKey.setPressed(desiredLeft);
+        client.options.rightKey.setPressed(desiredRight);
+        client.options.sprintKey.setPressed(false);
+        client.options.jumpKey.setPressed(desiredJump);
+        client.options.sneakKey.setPressed(desiredSneak);
+        lastForward = desiredForward;
+    }
+
+    private void computeDesiredMovement(MinecraftClient client, ClientPlayerEntity player, BlockPos start, BlockPos segmentEnd) {
+        desiredForward = false;
+        desiredBack = false;
+        desiredLeft = false;
+        desiredRight = false;
+        desiredJump = false;
+        desiredSneak = false;
+
+        if (client == null || client.world == null) return;
+        if (player == null) return;
+        if (segmentEnd == null) return;
+
+        // Determine the current stop-goal (checkpoint/segment goal). We only stop the run at the true destination.
+        BlockPos stopGoal = (currentSegmentGoal != null) ? currentSegmentGoal : segmentEnd;
+        Vec3d stopCenter = centerOf(stopGoal);
+
+        // Distance to the current stop-goal (used for slowdown heuristics).
+        double distToStop = distanceXZ(player.getPos(), stopCenter);
+
+        // If we are actually at the checkpoint/segment goal (tight + height-aware), stop pressing movement keys.
+        if (isAtGoalXZ(client.world, player, stopGoal)) {
+            // Let the checkpoint progression logic advance on the next tick.
+            desiredForward = false;
+            desiredSneak = false;
+            desiredJump = false;
+            return;
+        }
+
+        // Prefer a body-safe LOS target along the actual path (prevents corner cutting).
+        BlockPos aimBlock = stopGoal;
+        if (currentPath != null && !currentPath.isEmpty()) {
+            BlockPos los = selectLineOfSightTarget(client.world, player, currentPath, pathNodeIndex);
+            if (los != null) aimBlock = los;
+        }
+
+        Vec3d aim = centerOf(aimBlock);
+        float desiredYaw = computeDesiredYaw(player.getPos(), aim);
+        float yawError = Math.abs(MathHelper.wrapDegrees(desiredYaw - player.getYaw()));
+        float yawStep = adaptiveYawStep(yawError);
+        setPlayerYawSmooth(player, desiredYaw, yawStep);
+
+        // Forward-only walking: eliminates diagonal overshoot/zigzag caused by A/D corrections.
+        desiredForward = true;
+        desiredLeft = false;
+        desiredRight = false;
+
+        // Turn anticipation slowdown near sharp waypoint turns.
+        double turnAngle = 0.0;
+        if (routeCheckpoints != null && checkpointIndex < routeCheckpoints.size()) {
+            BlockPos b = routeCheckpoints.get(Math.min(routeCheckpoints.size() - 1, checkpointIndex));
+            BlockPos a = start;
+            if (checkpointIndex > 0) a = routeCheckpoints.get(Math.min(routeCheckpoints.size() - 1, checkpointIndex - 1));
+            BlockPos c = null;
+            if (checkpointIndex + 1 < routeCheckpoints.size()) c = routeCheckpoints.get(checkpointIndex + 1);
+            else if (segmentEnd != null && !b.equals(segmentEnd)) c = segmentEnd;
+
+            if (c != null) {
+                Vec3d av = centerOf(a);
+                Vec3d bv = centerOf(b);
+                Vec3d cv = centerOf(c);
+                Vec3d ab = new Vec3d(bv.x - av.x, 0.0, bv.z - av.z);
+                Vec3d bc = new Vec3d(cv.x - bv.x, 0.0, cv.z - bv.z);
+                if (ab.lengthSquared() > 1e-6 && bc.lengthSquared() > 1e-6) {
+                    Vec3d v1 = ab.normalize();
+                    Vec3d v2 = bc.normalize();
+                    double dot = MathHelper.clamp(v1.dotProduct(v2), -1.0, 1.0);
+                    turnAngle = Math.toDegrees(Math.acos(dot));
                 }
             }
 
-            if (currentPath.isEmpty()) return;
+            double distToB = distanceXZ(player.getPos(), centerOf(b));
+            if (turnAngle >= 55.0 && distToB <= 2.4) {
+                desiredSneak = true;
+            }
+        }
 
-            // (CRITICAL) Progress index: monotonic + pass-based advance (clamped on step-ups)
-            updatePathIndexForgiving(player.getPos());
+        // Slowdown near the stop-goal to prevent overshoot. Use a smaller window for intermediate checkpoints.
+        boolean stopIsFinal = (finalTargetBlock != null && stopGoal.equals(finalTargetBlock));
+        double slowDist = stopIsFinal ? SLOWDOWN_DIST_FINAL : SLOWDOWN_DIST_FINAL_CHECKPOINT;
+        if (distToStop <= slowDist) {
+            desiredSneak = true;
+        }
 
-            // Corner-cut prevention: if the next segment is a sharp turn (or a pending step-up),
-            // do not aim multiple nodes ahead until we are close to the corner/ledge.
-            // This reduces premature yaw changes that can cause the player to "jump off" edges.
-            boolean lockToCurrentForTurn = false;
-            if (currentPath.size() >= 3 && pathNodeIndex + 1 < currentPath.size()) {
-                BlockPos prevN = currentPath.get(Math.max(0, pathNodeIndex - 1));
-                BlockPos curN  = currentPath.get(pathNodeIndex);
-                BlockPos nextN = currentPath.get(pathNodeIndex + 1);
-                boolean stepUpPending = nextN.getY() > curN.getY() && player.getBoundingBox().minY < (double) nextN.getY() - 0.01;
+        // Jump: conservative (only when required) - looks ahead for upcoming step-up.
+        desiredJump = computeDesiredJump(client, player);
 
-                if (stepUpPending || isSharpTurnXZ(prevN, curN, nextN, 35.0)) {
-                    double nearCur = distanceXZ(player.getPos(), centerOf(curN));
-                    lockToCurrentForTurn = nearCur > 0.55;
+        // If the next path edge is a drop-down, do not hold sneak while trying to step off the ledge.
+        // Sneaking prevents falling, and was the primary cause of "knows it needs to go down but won't go down".
+        if (desiredSneak && currentPath != null && pathNodeIndex + 1 < currentPath.size()) {
+            BlockPos a = currentPath.get(pathNodeIndex);
+            BlockPos b = currentPath.get(pathNodeIndex + 1);
+            if (isDropRequiredForEdge(client.world, a, b)) {
+                double speedXZ = new Vec3d(player.getVelocity().x, 0.0, player.getVelocity().z).length();
+                double edgeTol = 0.30 + MathHelper.clamp(speedXZ * 1.2, 0.0, 0.25);
+                if (isNearEdgeToward(a, b, player.getPos(), edgeTol, 0.70)) {
+                    desiredSneak = false;
                 }
             }
+        }
 
-            // Carrot target (forgiving "next path part")
-            int carrotBase = lockToCurrentForTurn ? pathNodeIndex : (pathNodeIndex + CARROT_NODES);
-            int carrotIdx = Math.min(currentPath.size() - 1, carrotBase);
-            BlockPos carrot = currentPath.get(carrotIdx);
 
-            // LOS target, but only if it is as-far-or-farther than carrot
-            BlockPos los = selectLineOfSightTarget(world, player, currentPath, pathNodeIndex);
-            BlockPos controlTarget = carrot;
-
-            if (los != null) {
-                int losIdx = indexOfNode(currentPath, los, pathNodeIndex,
-                        Math.min(currentPath.size() - 1, pathNodeIndex + LOS_LOOKAHEAD_MAX_NODES));
-                if (losIdx >= carrotIdx) controlTarget = los;
-            }
-
-            currentWalkTarget = controlTarget;
-
-            // Rotate
-            float desiredYaw = computeDesiredYaw(player.getPos(), controlTarget);
-            float yawError = Math.abs(MathHelper.wrapDegrees(desiredYaw - player.getYaw()));
-            float yawStep = adaptiveYawStep(yawError);
-            setPlayerYawSmooth(player, desiredYaw, yawStep);
-
-            // Forward: do NOT stop per-node; stop only near checkpoint/segment/final goal
-            BlockPos stopGoal = (currentSegmentGoal != null) ? currentSegmentGoal : segmentEnd;
-            desiredForward = !isAtStopGoal(player, stopGoal);
-
-            // Jump: conservative (only when required) - looks ahead for upcoming step-up
-            desiredJump = computeDesiredJump(client, player);
-
-            // AoTE (optional) - only if moving and reasonably aligned
-            if (desiredForward) {
-                tryUseAote(client, player, yawError);
-            }
-
-        } finally {
-            client.options.forwardKey.setPressed(desiredForward);
-            client.options.backKey.setPressed(false);
-            client.options.leftKey.setPressed(false);
-            client.options.rightKey.setPressed(false);
-            client.options.sprintKey.setPressed(false);
-            client.options.jumpKey.setPressed(desiredJump);
-
-            lastForward = desiredForward;
+        // AoTE (optional)
+        if (ENABLE_AOTE && desiredForward) {
+            tryUseAote(client, player, yawError);
         }
     }
 
@@ -493,7 +591,7 @@ public final class PathfindScript implements Script {
     // Forgiving progress index (pass-based, clamped on step-ups)
     // ---------------------------------------------------------------------
 
-    private void updatePathIndexForgiving(Vec3d playerPos) {
+    private void updatePathIndexForgiving(Vec3d playerPos, World world) {
         if (currentPath == null || currentPath.isEmpty()) {
             pathNodeIndex = 0;
             return;
@@ -530,15 +628,16 @@ public final class PathfindScript implements Script {
 
             double near = distanceXZ(playerPos, centerOf(cur));
 
-            boolean stepUp = next.getY() > cur.getY();
+            boolean stepUp = isJumpRequiredForEdge(world, cur, next);
 
             // IMPORTANT: never advance onto the "up" node until we are actually up.
             // Otherwise, the walker thinks it is already one block ahead and will not
             // trigger jump/step logic while still pressed against the ledge.
             if (stepUp) {
-                // Require that our feet are effectively on the higher block.
-                // (Player Y is continuous; use a small tolerance.)
-                boolean actuallyUp = playerPos.y >= (double) next.getY() - 0.05;
+                // Require that our feet are effectively on the higher walk surface.
+                // This covers both full block step-ups and half-block (slab/stair) step-ups.
+                double nextFloor = getWalkSurfaceY(world, next);
+                boolean actuallyUp = playerPos.y >= nextFloor - 0.05;
                 if (actuallyUp && near <= 0.95) {
                     pathNodeIndex++;
                     continue;
@@ -579,6 +678,79 @@ public final class PathfindScript implements Script {
         return t > 0.55;
     }
 
+    // ---------------------------------------------------------------------
+    // Walk surface / jump-required detection (handles slabs and stairs)
+    // ---------------------------------------------------------------------
+
+    private static double getWalkSurfaceY(World world, BlockPos airPos) {
+    if (world == null || airPos == null) return 0.0;
+
+    // If the current "air" cell actually contains a low-profile collision (bottom slab, stair tread, carpet),
+    // treat that collision top as the floor surface. This is essential when the pathfinder treats slabs as passable.
+    VoxelShape hereShape = world.getBlockState(airPos).getCollisionShape(world, airPos);
+    if (hereShape != null && !hereShape.isEmpty()) {
+        double minY = hereShape.getMin(Direction.Axis.Y);
+        double maxY = hereShape.getMax(Direction.Axis.Y);
+
+        // Accept only floor-like shapes in the lower half. Reject top slabs / upside-down stairs.
+        if (minY <= 0.20 && maxY <= BODY_CLEARANCE_MIN_Y) {
+            return (double) airPos.getY() + maxY;
+        }
+    }
+
+    // Otherwise, classic case: player stands in air, floor is the block below.
+    BlockPos support = airPos.down();
+    VoxelShape supportShape = world.getBlockState(support).getCollisionShape(world, support);
+    if (supportShape == null || supportShape.isEmpty()) return (double) support.getY();
+
+    double maxY = supportShape.getMax(Direction.Axis.Y);
+    return (double) support.getY() + maxY;
+}
+
+    private static boolean isJumpRequiredForEdge(World world, BlockPos fromAir, BlockPos toAir) {
+        if (fromAir == null || toAir == null) return false;
+        // Classic full-block step-up case.
+        if (toAir.getY() > fromAir.getY()) return true;
+        if (world == null) return false;
+
+        // Slabs/stairs: same air Y but the walk surface height increases beyond step height.
+        double fromFloor = getWalkSurfaceY(world, fromAir);
+        double toFloor = getWalkSurfaceY(world, toAir);
+        double d = toFloor - fromFloor;
+        return d > 0.55 && d <= 1.05;
+    }
+
+    private static boolean isDropRequiredForEdge(World world, BlockPos fromAir, BlockPos toAir) {
+        if (fromAir == null || toAir == null) return false;
+        if (toAir.getY() < fromAir.getY()) return true;
+        if (world == null) return false;
+
+        // Slabs/stairs: same air Y but the walk surface height decreases.
+        double fromFloor = getWalkSurfaceY(world, fromAir);
+        double toFloor = getWalkSurfaceY(world, toAir);
+        double d = toFloor - fromFloor;
+        return d < -0.55 && d >= -5.0;
+    }
+
+    private static boolean isNearEdgeToward(BlockPos lead, BlockPos dest, Vec3d pos, double edgeTol, double lateralTol) {
+        if (lead == null || dest == null || pos == null) return false;
+        BlockPos d = dest.subtract(lead);
+        int sx = Integer.signum(d.getX());
+        int sz = Integer.signum(d.getZ());
+        if (sx != 0) {
+            double edgeX = lead.getX() + (sx > 0 ? 1.0 : 0.0);
+            double forwardDist = (sx > 0) ? (edgeX - pos.x) : (pos.x - edgeX);
+            double lateral = Math.abs(pos.z - (lead.getZ() + 0.5));
+            return (forwardDist <= edgeTol && forwardDist >= -0.10 && lateral <= lateralTol);
+        } else if (sz != 0) {
+            double edgeZ = lead.getZ() + (sz > 0 ? 1.0 : 0.0);
+            double forwardDist = (sz > 0) ? (edgeZ - pos.z) : (pos.z - edgeZ);
+            double lateral = Math.abs(pos.x - (lead.getX() + 0.5));
+            return (forwardDist <= edgeTol && forwardDist >= -0.10 && lateral <= lateralTol);
+        }
+        return false;
+    }
+
         private static long edgeKey(BlockPos from, BlockPos to) {
         // Deterministic 64-bit mixing of two BlockPos values
         long a = from.asLong();
@@ -616,8 +788,9 @@ public final class PathfindScript implements Script {
     private void updateStepUpAttemptTracking(ClientPlayerEntity player) {
         if (trackedStepLead == null || trackedUpNode == null) return;
     
-        // Success: we reached (or exceeded) the destination Y-level
-        if (player.getBlockPos().getY() >= trackedUpNode.getY()) {
+        // Success: we reached (or exceeded) the destination walk surface.
+        // This covers both full-block step-ups and half-block (slab/stair) rises.
+        if (player.getBoundingBox().minY >= getWalkSurfaceY(player.getWorld(), trackedUpNode) - 0.02) {
             clearStepUpTracking();
             return;
         }
@@ -672,62 +845,78 @@ public final class PathfindScript implements Script {
 
         int py = player.getBlockPos().getY();
 
-        // Look ahead for the next upward step so we do not miss jumps if the index advances early.
+        // Look ahead for the next edge that requires a jump (full block or slab/stair rise).
         BlockPos stepLead = null;
+        BlockPos stepDest = null;
         int maxLook = Math.min(currentPath.size() - 2, pathNodeIndex + 5);
 
         for (int i = pathNodeIndex; i <= maxLook; i++) {
             BlockPos a = currentPath.get(i);
             BlockPos b = currentPath.get(i + 1);
-            if (b.getY() > a.getY()) {
-                stepLead = a; // block BEFORE the step-up
+            if (isJumpRequiredForEdge(client.world, a, b)) {
+                stepLead = a;
+                stepDest = b;
                 break;
             }
         }
 
-        if (stepLead == null) return false;
+        if (stepLead == null || stepDest == null) return false;
 
         // Must actually be near the step lead-in, otherwise do not jump yet.
         // At higher horizontal speeds, allow triggering slightly earlier to compensate for overshooting.
         double speedXZ = new Vec3d(player.getVelocity().x, 0.0, player.getVelocity().z).length();
-        double leadProximity = 0.95 + MathHelper.clamp(speedXZ * 1.6, 0.0, 0.60);
-        if (distanceXZ(player.getPos(), centerOf(stepLead)) > leadProximity) return false;
 
-        // Additional sanity: if the step-up target is not above our feet Y, do not jump.
-        // (This protects against weird paths when snapped Y differs slightly.)
-        BlockPos upNode = null;
-        int stepLeadIdx = indexOfNode(currentPath, stepLead, pathNodeIndex, Math.min(currentPath.size() - 1, pathNodeIndex + 6));
-        if (stepLeadIdx >= 0 && stepLeadIdx + 1 < currentPath.size()) {
-            BlockPos up = currentPath.get(stepLeadIdx + 1);
-            if (up.getY() <= py) return false;
-            upNode = up;
+        // Jump trigger should be based on being near the ledge edge in the correct direction,
+        // not on being near the center of the lead-in node (which is often false when you approach offset).
+        BlockPos d = stepDest.subtract(stepLead);
+        int sx = Integer.signum(d.getX());
+        int sz = Integer.signum(d.getZ());
 
-            // If we previously failed this specific step-up multiple times, avoid it and repath.
-            if (isStepUpEdgeAvoided(stepLead, upNode)) {
-                forceRepathNow = true;
-                return false;
-            }
-        } else {
+        Vec3d p = player.getPos();
+
+        // Lateral tolerance (how far off-center we allow while still jumping).
+        double lateralTol = 0.60;
+
+        // How close we must be to the ledge edge before jumping. Faster movement -> slightly earlier trigger.
+        double edgeTol = 0.30 + MathHelper.clamp(speedXZ * 1.2, 0.0, 0.25);
+
+        boolean nearEdge = false;
+        if (sx != 0) {
+            double edgeX = stepLead.getX() + (sx > 0 ? 1.0 : 0.0);
+            double forwardDist = (sx > 0) ? (edgeX - p.x) : (p.x - edgeX);
+            double lateral = Math.abs(p.z - (stepLead.getZ() + 0.5));
+            nearEdge = (forwardDist <= edgeTol && forwardDist >= -0.10 && lateral <= lateralTol);
+        } else if (sz != 0) {
+            double edgeZ = stepLead.getZ() + (sz > 0 ? 1.0 : 0.0);
+            double forwardDist = (sz > 0) ? (edgeZ - p.z) : (p.z - edgeZ);
+            double lateral = Math.abs(p.x - (stepLead.getX() + 0.5));
+            nearEdge = (forwardDist <= edgeTol && forwardDist >= -0.10 && lateral <= lateralTol);
+        }
+
+        if (!nearEdge) return false;
+
+        BlockPos upNode = stepDest;
+
+        // If we previously failed this specific step-up multiple times, avoid it and repath.
+        if (isStepUpEdgeAvoided(stepLead, upNode)) {
+            forceRepathNow = true;
             return false;
         }
 
         World world = client.world;
 
-        // Robust "need-to-jump" detection for 1-block step-ups:
-        // - We are near the lead-in (checked above)
-        // - The next node is exactly one block higher (typical ledge step)
-        // - We are not yet actually on the higher level
-        // - There is clearance at the destination (feet + head)
-        //
-        // This intentionally does NOT rely on the player's current yaw/rotation vector,
-        // because being pinned on corners (walls/fences/top-slabs) can desync facing from the true ledge.
+        // Robust "need-to-jump" detection (full blocks + slabs/stairs):
+        // - Near the lead-in
+        // - Walk surface at destination is higher than current by > step height
+        // - Not already at/above the destination walk surface
+        // - Destination air spaces are clear (feet + head)
+        double fromFloor = getWalkSurfaceY(world, stepLead);
+        double toFloor = getWalkSurfaceY(world, upNode);
+        double floorDelta = toFloor - fromFloor;
+        if (floorDelta <= 0.55 || floorDelta > 1.05) return false;
+
         double feetY = player.getBoundingBox().minY;
-        if (feetY >= (double) upNode.getY() - 0.01) return false;
-
-        if (upNode.getY() != stepLead.getY() + 1) return false;
-
-        // The solid ledge block you're trying to climb is at (upNode.down()).
-        BlockPos ledgeBlock = upNode.down();
+        if (feetY >= toFloor - 0.02) return false;
 
         // Destination spaces that must be empty/passable.
         BlockPos destFeet = upNode;
@@ -738,9 +927,6 @@ public final class PathfindScript implements Script {
 
         if (!destFeetShape.isEmpty()) return false;
         if (!destHeadShape.isEmpty()) return false;
-
-        // If there is no ledge block, this is not a step-up into a solid face.
-        if (world.getBlockState(ledgeBlock).getCollisionShape(world, ledgeBlock).isEmpty()) return false;
 
         // Ensure we are generally moving toward the step direction (avoid jumping in place).
         Vec3d toUp = centerOf(upNode).subtract(player.getPos());
@@ -760,6 +946,85 @@ public final class PathfindScript implements Script {
         return true;
     }
 
+
+    // ---------------------------------------------------------------------
+    // Direct-path shortcut (superflat / open areas)
+    // ---------------------------------------------------------------------
+
+    private static boolean isDirectWalkable(World world, BlockPos start, BlockPos goal) {
+        if (world == null || start == null || goal == null) return false;
+
+        // Only attempt on roughly level ground; A* handles vertical terrain better.
+        if (Math.abs(start.getY() - goal.getY()) > 1) return false;
+
+        // Sample along the straight line in XZ and require standable blocks.
+        Vec3d a = centerOf(start);
+        Vec3d b = centerOf(goal);
+        Vec3d ab = new Vec3d(b.x - a.x, 0.0, b.z - a.z);
+        double len = Math.sqrt(ab.lengthSquared());
+        if (len < 1e-6) return true;
+
+        int steps = (int) Math.ceil(len / 0.45);
+        for (int i = 0; i <= steps; i++) {
+            double t = (double) i / (double) steps;
+            double x = a.x + (b.x - a.x) * t;
+            double z = a.z + (b.z - a.z) * t;
+
+            BlockPos p = new BlockPos(MathHelper.floor(x), start.getY(), MathHelper.floor(z));
+
+            // Try a small vertical window to tolerate minor micro-steps.
+            BlockPos stand = null;
+            for (int dy = -1; dy <= 1; dy++) {
+                BlockPos cand = p.add(0, dy, 0);
+                if (AStar.isStandablePublic(world, cand)) {
+                    stand = cand;
+                    break;
+                }
+            }
+            if (stand == null) return false;
+        }
+        return true;
+    }
+
+    private static List<BlockPos> buildDirectLinePath(BlockPos start, BlockPos goal) {
+        // Bresenham in XZ at the start Y (good enough for flat-ish direct routes).
+        List<BlockPos> out = new ArrayList<>();
+        int x0 = start.getX();
+        int z0 = start.getZ();
+        int x1 = goal.getX();
+        int z1 = goal.getZ();
+        int y = start.getY();
+
+        int dx = Math.abs(x1 - x0);
+        int dz = Math.abs(z1 - z0);
+        int sx = (x0 < x1) ? 1 : -1;
+        int sz = (z0 < z1) ? 1 : -1;
+        int err = dx - dz;
+
+        int x = x0;
+        int z = z0;
+        out.add(new BlockPos(x, y, z));
+
+        while (x != x1 || z != z1) {
+            int e2 = 2 * err;
+            if (e2 > -dz) {
+                err -= dz;
+                x += sx;
+            }
+            if (e2 < dx) {
+                err += dx;
+                z += sz;
+            }
+            out.add(new BlockPos(x, y, z));
+        }
+
+        // Ensure the final node matches the goal Y if it differs by 1.
+        if (Math.abs(goal.getY() - y) == 1) {
+            out.set(out.size() - 1, goal);
+        }
+        return out;
+    }
+
     // ---------------------------------------------------------------------
     // Macro goal
     // ---------------------------------------------------------------------
@@ -767,7 +1032,8 @@ public final class PathfindScript implements Script {
     private BlockPos ensureMacroGoal(World world, BlockPos start, BlockPos finalGoal) {
         int distMan = manhattan(start, finalGoal);
 
-        if (distMan <= MAX_RANGE) {
+        // Always segment long distances into ~MACRO_STEP chunks to avoid large A* expansions.
+        if (distMan <= MACRO_STEP) {
             macroGoalBlock = finalGoal;
             macroGoalCenter = centerOf(finalGoal);
             return finalGoal;
@@ -785,7 +1051,7 @@ public final class PathfindScript implements Script {
         double len = Math.sqrt(dir.x * dir.x + dir.z * dir.z);
         if (len < 1e-6) return finalGoal;
 
-        double step = Math.min((double) MACRO_STEP, (double) (MAX_RANGE - 20));
+        double step = (double) MACRO_STEP;
         Vec3d dir2 = new Vec3d(dir.x / len, 0.0, dir.z / len);
         Vec3d approx = s.add(dir2.multiply(step));
 
@@ -847,23 +1113,126 @@ public final class PathfindScript implements Script {
         double cy = camera.getPos().y;
         double cz = camera.getPos().z;
 
-        if (inst.finalTargetBlock != null) {
-            drawBoxAt(renderPos(inst.finalTargetBlock), matrices, consumers, cx, cy, cz,
-                    DEST_R, DEST_G, DEST_B, DEST_A);
+        // Path ribbon
+        if (inst.currentPath != null && inst.currentPath.size() >= 2) {
+            renderPathRibbon(matrices, consumers, cx, cy, cz, inst.currentPath);
         }
 
-        if (inst.currentSegmentGoal != null) {
-            drawBoxAt(renderPos(inst.currentSegmentGoal), matrices, consumers, cx, cy, cz,
-                    GOAL_R, GOAL_G, GOAL_B, GOAL_A);
+        renderCheckpointOverlays(matrices, consumers, cx, cy, cz, inst);
+    }
+
+    /**
+     * Version-compatible rendering:
+     * - Avoids BufferRenderer/Tessellator/VertexFormat/GameRenderer APIs that change across MC versions.
+     * - Uses RenderLayer.getLines() via VertexConsumerProvider, which is stable.
+     * - Draws a single line segment between nodes.
+     * - Renders clear marker blocks at corners (wireframe outline + semi-transparent fill).
+     */
+    private static void renderPathRibbon(MatrixStack matrices, VertexConsumerProvider consumers,
+                                         double camX, double camY, double camZ, List<BlockPos> path) {
+        if (path == null || path.size() < 2) return;
+
+        // Limit rendered nodes to avoid large buffers.
+        int max = Math.min(path.size(), RENDER_MAX_WHITE_NODES);
+
+        // A stable, visible floor offset.
+        double y = FLOOR_RIBBON_Y_OFFSET;
+        for (int i = 0; i < max - 1; i++) {
+            Vec3d p0 = centerOf(path.get(i)).add(0.0, y, 0.0);
+            Vec3d p1 = centerOf(path.get(i + 1)).add(0.0, y, 0.0);
+
+            // Single line segment between nodes.
+            drawLine3d(matrices, consumers, camX, camY, camZ, p0, p1, PATH_R, PATH_G, PATH_B, PATH_A);
         }
 
-        if (inst.currentPath != null && !inst.currentPath.isEmpty()) {
-            int start = Math.max(0, inst.pathNodeIndex);
-            int end = Math.min(inst.currentPath.size(), start + RENDER_MAX_WHITE_NODES);
-            for (int i = start; i < end; i++) {
-                drawBoxAt(renderPos(inst.currentPath.get(i)), matrices, consumers, cx, cy, cz,
-                        WHITE_R, WHITE_G, WHITE_B, WHITE_A);
+        // Marker blocks at corners (and start/end): wireframe outline + 50% translucent fill.
+        // This replaces the old node-circle visuals.
+        int marked = 0;
+        if (max >= 1) {
+            drawMarkerBoxAt(renderPos(path.get(0)), matrices, consumers, camX, camY, camZ,
+                    PATH_R, PATH_G, PATH_B, 0.50f);
+            marked++;
+        }
+
+        for (int i = 1; i < max - 1 && marked < CORNER_MARK_MAX; i++) {
+            BlockPos prev = path.get(i - 1);
+            BlockPos cur = path.get(i);
+            BlockPos next = path.get(i + 1);
+            if (prev == null || cur == null || next == null) continue;
+
+            int dx0 = Integer.signum(cur.getX() - prev.getX());
+            int dz0 = Integer.signum(cur.getZ() - prev.getZ());
+            int dx1 = Integer.signum(next.getX() - cur.getX());
+            int dz1 = Integer.signum(next.getZ() - cur.getZ());
+
+            // A corner is a change in horizontal direction.
+            if (dx0 != dx1 || dz0 != dz1) {
+                drawMarkerBoxAt(renderPos(cur), matrices, consumers, camX, camY, camZ,
+                        PATH_R, PATH_G, PATH_B, 0.50f);
+                marked++;
             }
+        }
+
+        if (max >= 2 && marked < CORNER_MARK_MAX) {
+            drawMarkerBoxAt(renderPos(path.get(max - 1)), matrices, consumers, camX, camY, camZ,
+                    PATH_R, PATH_G, PATH_B, 0.50f);
+        }
+    }
+
+
+
+    private static void renderCheckpointOverlays(MatrixStack matrices, VertexConsumerProvider consumers,
+                                                 double camX, double camY, double camZ,
+                                                 PathfindScript inst) {
+        if (inst == null) return;
+
+        // Theme color matches PATH_COLOR_ARGB.
+        final float r = PATH_R;
+        final float g = PATH_G;
+        final float b = PATH_B;
+        // Highlight final destination block (if present).
+        if (inst.finalTargetBlock != null) {
+            drawBoxAt(renderPos(inst.finalTargetBlock), matrices, consumers, camX, camY, camZ, r, g, b, 0.50f);
+        }
+
+        // Highlight current segment / checkpoint goal.
+        if (inst.currentSegmentGoal != null) {
+            drawBoxAt(renderPos(inst.currentSegmentGoal), matrices, consumers, camX, camY, camZ, r, g, b, 0.50f);
+        }
+
+        // Checkpoints: block highlights + a single line from each checkpoint to the next.
+        if (inst.routeCheckpoints == null || inst.routeCheckpoints.isEmpty()) return;
+
+        for (int i = 0; i < inst.routeCheckpoints.size(); i++) {
+            BlockPos cp = inst.routeCheckpoints.get(i);
+            if (cp == null) continue;
+
+            boolean isNext = (i == inst.checkpointIndex);
+            drawBoxAt(renderPos(cp), matrices, consumers, camX, camY, camZ, r, g, b, 0.50f);
+
+            // Single line drawing from this checkpoint to the next checkpoint (or final goal).
+            Vec3d aPos = centerOf(renderPos(cp)).add(0.0, FLOOR_RIBBON_Y_OFFSET, 0.0);
+            BlockPos next = null;
+            if (i + 1 < inst.routeCheckpoints.size()) next = inst.routeCheckpoints.get(i + 1);
+            else if (inst.finalTargetBlock != null) next = inst.finalTargetBlock;
+            if (next != null) {
+                Vec3d bPos = centerOf(renderPos(next)).add(0.0, FLOOR_RIBBON_Y_OFFSET, 0.0);
+                drawLine3d(matrices, consumers, camX, camY, camZ, aPos, bPos, r, g, b, isNext ? 0.95f : 0.55f);
+            }
+        }
+    }
+
+    private static void drawCircle3d(MatrixStack matrices, VertexConsumerProvider consumers,
+                                     double camX, double camY, double camZ,
+                                     Vec3d center, double radius, int segs,
+                                     float r, float g, float b, float a) {
+        if (segs < 3) return;
+        for (int i = 0; i < segs; i++) {
+            double a0 = (2.0 * Math.PI * i) / (double) segs;
+            double a1 = (2.0 * Math.PI * (i + 1)) / (double) segs;
+            Vec3d p0 = new Vec3d(center.x + Math.cos(a0) * radius, center.y, center.z + Math.sin(a0) * radius);
+            Vec3d p1 = new Vec3d(center.x + Math.cos(a1) * radius, center.y, center.z + Math.sin(a1) * radius);
+            drawLine3d(matrices, consumers, camX, camY, camZ, p0, p1, r, g, b, a);
         }
     }
 
@@ -878,6 +1247,84 @@ public final class PathfindScript implements Script {
         DebugRenderer.drawBox(matrices, consumers, box, r, g, b, a);
     }
 
+    private static void drawMarkerBoxAt(BlockPos pos, MatrixStack matrices, VertexConsumerProvider consumers,
+                                        double camX, double camY, double camZ,
+                                        float r, float g, float b, float fillAlpha) {
+        if (pos == null) return;
+
+        // Slight expansion makes edges clearer and reduces Z-fighting.
+        Box fill = new Box(pos).expand(0.002).offset(-camX, -camY, -camZ);
+        DebugRenderer.drawBox(matrices, consumers, fill, r, g, b, fillAlpha);
+
+        // Strong outline: a second pass with a slightly larger box and full alpha.
+        Box outline = new Box(pos).expand(0.006).offset(-camX, -camY, -camZ);
+        DebugRenderer.drawBox(matrices, consumers, outline, r, g, b, 1.0f);
+    }
+
+
+private static void drawLine3d(MatrixStack matrices, VertexConsumerProvider consumers,
+                               double camX, double camY, double camZ,
+                               Vec3d a, Vec3d b,
+                               float r, float g, float bl, float al) {
+    VertexConsumer vc = consumers.getBuffer(RenderLayer.getLines());
+    Matrix4f mat = matrices.peek().getPositionMatrix();
+
+    float ax = (float) (a.x - camX);
+    float ay = (float) (a.y - camY);
+    float az = (float) (a.z - camZ);
+    float bx = (float) (b.x - camX);
+    float by = (float) (b.y - camY);
+    float bz = (float) (b.z - camZ);
+
+    endVertex(vc.vertex(mat, ax, ay, az).color(r, g, bl, al).normal(0f, 1f, 0f));
+    endVertex(vc.vertex(mat, bx, by, bz).color(r, g, bl, al).normal(0f, 1f, 0f));
+}
+
+    // ---------------------------------------------------------------------
+    // VertexConsumer terminal method compatibility
+    // ---------------------------------------------------------------------
+
+    // Across mappings/versions, the terminal method for a built vertex differs (e.g., next(), endVertex()).
+    // Use reflection so the code compiles even if one of them is absent.
+    private static volatile java.lang.reflect.Method VC_NEXT_METHOD;
+    private static volatile java.lang.reflect.Method VC_ENDVERTEX_METHOD;
+
+    private static void endVertex(Object maybeVertexConsumer) {
+        if (!(maybeVertexConsumer instanceof VertexConsumer)) return;
+        VertexConsumer vc = (VertexConsumer) maybeVertexConsumer;
+
+        try {
+            // Fast path: cached method
+            if (VC_NEXT_METHOD != null) {
+                VC_NEXT_METHOD.invoke(vc);
+                return;
+            }
+            if (VC_ENDVERTEX_METHOD != null) {
+                VC_ENDVERTEX_METHOD.invoke(vc);
+                return;
+            }
+
+            // Resolve once
+            Class<?> c = vc.getClass();
+            try {
+                VC_NEXT_METHOD = c.getMethod("next");
+                VC_NEXT_METHOD.invoke(vc);
+                return;
+            } catch (NoSuchMethodException ignored) {
+                // fall through
+            }
+
+            try {
+                VC_ENDVERTEX_METHOD = c.getMethod("endVertex");
+                VC_ENDVERTEX_METHOD.invoke(vc);
+            } catch (NoSuchMethodException ignored) {
+                // If neither exists, do nothing. (Some implementations may flush implicitly.)
+            }
+        } catch (Throwable ignored) {
+            // Rendering must never crash the client.
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Rotation + target selection
     // ---------------------------------------------------------------------
@@ -889,7 +1336,14 @@ public final class PathfindScript implements Script {
         return (float) (MathHelper.atan2(dz, dx) * (180.0 / Math.PI)) - 90.0f;
     }
 
-    private static float adaptiveYawStep(float yawErrorDeg) {
+    
+private static float computeDesiredYaw(Vec3d playerPos, Vec3d target) {
+    double dx = target.x - playerPos.x;
+    double dz = target.z - playerPos.z;
+    return (float) (MathHelper.atan2(dz, dx) * (180.0 / Math.PI)) - 90.0f;
+}
+
+private static float adaptiveYawStep(float yawErrorDeg) {
         float t = MathHelper.clamp(yawErrorDeg / 90.0f, 0.0f, 1.0f);
         return lerp(YAW_STEP_SMOOTH, YAW_STEP_FAST, t);
     }
@@ -912,7 +1366,6 @@ public final class PathfindScript implements Script {
         int start = MathHelper.clamp(startIndex, 0, path.size() - 1);
         int max = Math.min(path.size() - 1, start + LOS_LOOKAHEAD_MAX_NODES);
 
-        Vec3d eye = player.getPos().add(0.0, LOS_EYE_HEIGHT, 0.0);
         Vec3d playerPos = player.getPos();
 
         BlockPos best = path.get(start);
@@ -920,8 +1373,7 @@ public final class PathfindScript implements Script {
         for (int i = start; i <= max; i++) {
             BlockPos cand = path.get(i);
 
-            Vec3d candPt = new Vec3d(cand.getX() + 0.5, playerPos.y + LOS_EYE_HEIGHT, cand.getZ() + 0.5);
-            if (!hasLineOfSight(world, eye, candPt, player)) break;
+            if (!hasBodyLineOfSight(world, player, cand)) break;
 
             if (!isCorridorSafe(world, playerPos, cand, path, start, i)) break;
 
@@ -974,7 +1426,28 @@ public final class PathfindScript implements Script {
         return best;
     }
 
-    private static boolean hasLineOfSight(World world, Vec3d from, Vec3d to, ClientPlayerEntity player) {
+    // Body-safe LOS: do not allow "seeing" a node if the feet/body would clip a block.
+    // This prevents selecting targets that are visible from the eye but blocked at player height.
+    private static boolean hasBodyLineOfSight(World world, ClientPlayerEntity player, BlockPos target) {
+        if (world == null || player == null || target == null) return false;
+
+        Vec3d base = player.getPos();
+        Vec3d tgt = new Vec3d(target.getX() + 0.5, target.getY(), target.getZ() + 0.5);
+
+        Vec3d srcFeet = new Vec3d(base.x, base.y + 0.15, base.z);
+        Vec3d srcMid  = new Vec3d(base.x, base.y + 0.95, base.z);
+        Vec3d srcEye  = new Vec3d(base.x, base.y + LOS_EYE_HEIGHT, base.z);
+
+        Vec3d dstFeet = new Vec3d(tgt.x, target.getY() + 0.15, tgt.z);
+        Vec3d dstMid  = new Vec3d(tgt.x, target.getY() + 0.95, tgt.z);
+        Vec3d dstEye  = new Vec3d(tgt.x, target.getY() + LOS_EYE_HEIGHT, tgt.z);
+
+        return rayClear(world, srcFeet, dstFeet, player)
+                && rayClear(world, srcMid,  dstMid,  player)
+                && rayClear(world, srcEye,  dstEye,  player);
+    }
+
+    private static boolean rayClear(World world, Vec3d from, Vec3d to, ClientPlayerEntity player) {
         RaycastContext ctx = new RaycastContext(
                 from, to,
                 RaycastContext.ShapeType.COLLIDER,
@@ -982,7 +1455,9 @@ public final class PathfindScript implements Script {
                 player
         );
         HitResult hit = world.raycast(ctx);
-        return hit.getType() == HitResult.Type.MISS || hit.getPos().squaredDistanceTo(to) < 0.20;
+        // Strict: any hit means the segment is not body-safe.
+        // A small distance tolerance here can incorrectly allow aiming "through" thin obstacles.
+        return hit.getType() == HitResult.Type.MISS;
     }
 
     private static int indexOfNode(List<BlockPos> path, BlockPos node, int a, int b) {
@@ -1139,8 +1614,16 @@ public final class PathfindScript implements Script {
         return null;
     }
 
-    private static boolean isAtGoalXZ(Vec3d playerPos, BlockPos goal) {
-        return distanceXZ(playerPos, centerOf(goal)) <= GOAL_REACH_DIST;
+    private static boolean isAtGoalXZ(World world, ClientPlayerEntity player, BlockPos goal) {
+        if (world == null || player == null || goal == null) return false;
+
+        Vec3d pos = player.getPos();
+        if (distanceXZ(pos, centerOf(goal)) > CHECKPOINT_REACH_DIST) return false;
+
+        // Require feet height agreement with the walk surface at the goal node.
+        double feetY = player.getBoundingBox().minY;
+        double goalFloor = getWalkSurfaceY(world, goal);
+        return Math.abs(feetY - goalFloor) <= CHECKPOINT_FEET_Y_EPS;
     }
 
     /**
@@ -1263,6 +1746,7 @@ public final class PathfindScript implements Script {
         jumpCooldownTicks = 0;
 
         aoteCooldownTicks = 0;
+        brakeTapTicksRemaining = 0;
     }
 
     private static void releaseKeys() {
@@ -1274,6 +1758,7 @@ public final class PathfindScript implements Script {
         client.options.leftKey.setPressed(false);
         client.options.rightKey.setPressed(false);
         client.options.jumpKey.setPressed(false);
+        client.options.sneakKey.setPressed(false);
         client.options.sprintKey.setPressed(false);
     }
 

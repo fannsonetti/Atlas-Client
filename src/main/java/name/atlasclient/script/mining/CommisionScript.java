@@ -2,6 +2,7 @@ package name.atlasclient.script.mining;
 
 import name.atlasclient.script.Script;
 import name.atlasclient.script.misc.PathfindScript;
+import name.atlasclient.config.Rotation;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
@@ -237,7 +238,8 @@ public final class CommisionScript implements Script {
             return;
         }
 
-        // Find nearest emissary-like entity near the anchor, then interact
+        // Find nearest emissary-like NPC entity near the anchor, then "mouse over" + right click.
+        // NOTE: We exclude the local player to avoid "cant interact with self" kicks.
         emissaryEntity = findNearestEntityNear(client, lastEmissaryPos, 6.0);
         if (emissaryEntity == null) {
             // if no entity found, re-seek (maybe wrong anchor or not loaded)
@@ -245,9 +247,10 @@ public final class CommisionScript implements Script {
             return;
         }
 
-        try {
-            Objects.requireNonNull(client.interactionManager).interactEntity(client.player, emissaryEntity, Hand.MAIN_HAND);
-        } catch (Throwable ignored) {}
+        // Move view towards the closest emissary NPC using the global rotation speed,
+        // then perform a right click interaction on that entity.
+        tryAimAtEntity(client, emissaryEntity);
+        tryRightClickEntity(client, emissaryEntity);
     }
 
     private void tickReadBooksAndSelect(MinecraftClient client) {
@@ -582,24 +585,101 @@ public final class CommisionScript implements Script {
         if (client == null || client.world == null || client.player == null || center == null) return null;
 
         double r2 = radius * radius;
-        Entity best = null;
-        double bestD2 = Double.MAX_VALUE;
+        Entity bestNamed = null;
+        double bestNamedD2 = Double.MAX_VALUE;
+
+        Entity bestAny = null;
+        double bestAnyD2 = Double.MAX_VALUE;
 
         // Broad scan: iterate world entities and pick the closest within radius.
-        // (No name filter here to keep it reliable across NPC naming; proximity to anchor is the filter.)
+        // Prefer entities whose name contains "emissary" / "emmissary". Always exclude the local player.
         try {
             for (Entity e : client.world.getEntities()) {
                 if (e == null || e.isRemoved()) continue;
+                if (e == client.player) continue; // Avoid "cant interact with self" kicks.
                 double d2 = e.getPos().squaredDistanceTo(center);
                 if (d2 > r2) continue;
-                if (d2 < bestD2) {
-                    bestD2 = d2;
-                    best = e;
+
+                if (d2 < bestAnyD2) {
+                    bestAnyD2 = d2;
+                    bestAny = e;
+                }
+
+                String n;
+                try { n = e.getName().getString(); } catch (Throwable t) { n = ""; }
+                n = (n == null) ? "" : n.toLowerCase();
+                if (n.contains("emissary") || n.contains("emmissary")) {
+                    if (d2 < bestNamedD2) {
+                        bestNamedD2 = d2;
+                        bestNamed = e;
+                    }
                 }
             }
         } catch (Throwable ignored) {}
 
-        return best;
+        return (bestNamed != null) ? bestNamed : bestAny;
+    }
+
+    // -------------------- "Mouse" aim + right click helpers --------------------
+    private static void tryAimAtEntity(MinecraftClient client, Entity target) {
+        if (client == null || client.player == null || target == null) return;
+
+        try {
+            Vec3d eye = client.player.getEyePos();
+            Vec3d aim;
+            try {
+                // Bounding box center is usually a better click point than feet.
+                aim = target.getBoundingBox().getCenter();
+            } catch (Throwable t) {
+                aim = target.getPos();
+            }
+
+            double dx = aim.x - eye.x;
+            double dy = aim.y - eye.y;
+            double dz = aim.z - eye.z;
+
+            double distXZ = Math.sqrt(dx * dx + dz * dz);
+            float targetYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0);
+            float targetPitch = (float) (-Math.toDegrees(Math.atan2(dy, distXZ)));
+
+            // Use global rotation speed (interpreted as degrees/second) from Rotation.
+            // At 20 TPS: deg/tick = speed/20.
+            float degPerTick = Math.max(0.0f, Math.min(180.0f, Rotation.getRotationSpeed() / 20.0f));
+
+            float newYaw = stepAngle(client.player.getYaw(), targetYaw, degPerTick);
+            float newPitch = stepAngle(client.player.getPitch(), targetPitch, degPerTick);
+
+            client.player.setYaw(newYaw);
+            client.player.setPitch(clampPitch(newPitch));
+        } catch (Throwable ignored) {}
+    }
+
+    private static void tryRightClickEntity(MinecraftClient client, Entity target) {
+        if (client == null || client.player == null || client.interactionManager == null || target == null) return;
+        if (target == client.player) return;
+
+        try {
+            // This is the same codepath as a real mouse right-click on an entity.
+            client.interactionManager.interactEntity(client.player, target, Hand.MAIN_HAND);
+        } catch (Throwable ignored) {}
+    }
+
+    private static float stepAngle(float current, float target, float maxDelta) {
+        float delta = wrapDegrees(target - current);
+        if (delta > maxDelta) delta = maxDelta;
+        if (delta < -maxDelta) delta = -maxDelta;
+        return current + delta;
+    }
+
+    private static float wrapDegrees(float degrees) {
+        float d = degrees;
+        while (d >= 180.0f) d -= 360.0f;
+        while (d < -180.0f) d += 360.0f;
+        return d;
+    }
+
+    private static float clampPitch(float pitch) {
+        return Math.max(-90.0f, Math.min(90.0f, pitch));
     }
 
     // -------------------- Pathfinding wrappers --------------------
