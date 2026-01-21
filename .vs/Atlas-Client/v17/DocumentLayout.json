@@ -3,6 +3,38 @@
   "WorkspaceRootPath": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\",
   "Documents": [
     {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\ui\\AtlasMainScreen.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\ui\\AtlasMainScreen.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\farming\\WartCropsScript.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\script\\farming\\WartCropsScript.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\farming\\WartCropsConfig.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\config\\farming\\WartCropsConfig.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\ScriptVariant.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\script\\ScriptVariant.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\VariantScript.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\script\\VariantScript.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\ScriptIconProvider.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\script\\ScriptIconProvider.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\sections\\farming\\WartCropsConfigSection.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\config\\sections\\farming\\WartCropsConfigSection.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\misc\\PathfindScript.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\script\\misc\\PathfindScript.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\foraging\\HubForagingScript.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\script\\foraging\\HubForagingScript.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
     },
@@ -11,16 +43,28 @@
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\config\\Rotation.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\sections\\foraging\\HubForagerConfigSection.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\config\\sections\\foraging\\HubForagerConfigSection.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\ui\\AtlasMainScreen.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\ui\\AtlasMainScreen.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\foraging\\HubForagerConfig.java||{8B382828-6202-11D1-8870-0000F87579D2}",
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\config\\foraging\\HubForagerConfig.java||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\ui\\HudPanel.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\ui\\HudPanel.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\mining\\MithrilMiningScript.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\script\\mining\\MithrilMiningScript.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\ui\\ScriptHudOverlay.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\ui\\ScriptHudOverlay.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\Script.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\script\\Script.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\sections\\foraging\\HubForagerConfigSection.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\config\\sections\\foraging\\HubForagerConfigSection.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
     },
     {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\ConfigManager.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
@@ -35,16 +79,8 @@
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\script\\ScriptManager.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\misc\\PathfindScript.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\script\\misc\\PathfindScript.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\Debug.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\config\\Debug.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\mining\\MithrilMiningScript.java||{3B902123-F8A7-4915-9F01-361F908088D0}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src\\main\\java\\name\\atlasclient\\script\\mining\\MithrilMiningScript.java||{3B902123-F8A7-4915-9F01-361F908088D0}"
     }
   ],
   "DocumentGroupContainers": [
@@ -54,37 +90,154 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 3,
+          "SelectedChildIndex": 10,
           "Children": [
             {
               "$type": "Document",
+              "DocumentIndex": 5,
+              "Title": "ScriptIconProvider.java",
+              "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\ScriptIconProvider.java",
+              "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\script\\ScriptIconProvider.java",
+              "ToolTip": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\ScriptIconProvider.java",
+              "RelativeToolTip": "src\\main\\java\\name\\atlasclient\\script\\ScriptIconProvider.java",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAoAAAAAAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACdSURBVDhPzZO9CQQhEIWfBwdbgAVsI1ZjG5tdaCEWYmAZBgqmZh5rMJdc4A/scu4G98FLBvlgfAxbtp0wyfv1BL6CqSzbTo/e\u002BiuNwHuPUgqMMQCAdV3hnKufDDQCIQRCCBBC1OND7l2hh3OOlFI/bqlbsNZSzpm01qSUohgjSSmH369b\u002BLMaZ7hXQERDzmgEjLEhZ1xegV05ZwD4ADIfbQvXfz00AAAAAElFTkSuQmCC",
+              "WhenOpened": "2026-01-21T19:02:35.098Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "VariantScript.java",
+              "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\VariantScript.java",
+              "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\script\\VariantScript.java",
+              "ToolTip": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\VariantScript.java",
+              "RelativeToolTip": "src\\main\\java\\name\\atlasclient\\script\\VariantScript.java",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABMAAAAAAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACdSURBVDhPzZO9CQQhEIWfBwdbgAVsI1ZjG5tdaCEWYmAZBgqmZh5rMJdc4A/scu4G98FLBvlgfAxbtp0wyfv1BL6CqSzbTo/e\u002BiuNwHuPUgqMMQCAdV3hnKufDDQCIQRCCBBC1OND7l2hh3OOlFI/bqlbsNZSzpm01qSUohgjSSmH369b\u002BLMaZ7hXQERDzmgEjLEhZ1xegV05ZwD4ADIfbQvXfz00AAAAAElFTkSuQmCC",
+              "WhenOpened": "2026-01-21T19:01:45.697Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "ScriptVariant.java",
+              "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\ScriptVariant.java",
+              "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\script\\ScriptVariant.java",
+              "ToolTip": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\ScriptVariant.java",
+              "RelativeToolTip": "src\\main\\java\\name\\atlasclient\\script\\ScriptVariant.java",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABYAAAAAAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACdSURBVDhPzZO9CQQhEIWfBwdbgAVsI1ZjG5tdaCEWYmAZBgqmZh5rMJdc4A/scu4G98FLBvlgfAxbtp0wyfv1BL6CqSzbTo/e\u002BiuNwHuPUgqMMQCAdV3hnKufDDQCIQRCCBBC1OND7l2hh3OOlFI/bqlbsNZSzpm01qSUohgjSSmH369b\u002BLMaZ7hXQERDzmgEjLEhZ1xegV05ZwD4ADIfbQvXfz00AAAAAElFTkSuQmCC",
+              "WhenOpened": "2026-01-21T19:01:13.978Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 6,
+              "Title": "WartCropsConfigSection.java",
+              "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\sections\\farming\\WartCropsConfigSection.java",
+              "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\config\\sections\\farming\\WartCropsConfigSection.java",
+              "ToolTip": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\sections\\farming\\WartCropsConfigSection.java",
+              "RelativeToolTip": "src\\main\\java\\name\\atlasclient\\config\\sections\\farming\\WartCropsConfigSection.java",
+              "ViewState": "AgIAAAgAAAAAAAAAAAAUwDYAAAAAAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACdSURBVDhPzZO9CQQhEIWfBwdbgAVsI1ZjG5tdaCEWYmAZBgqmZh5rMJdc4A/scu4G98FLBvlgfAxbtp0wyfv1BL6CqSzbTo/e\u002BiuNwHuPUgqMMQCAdV3hnKufDDQCIQRCCBBC1OND7l2hh3OOlFI/bqlbsNZSzpm01qSUohgjSSmH369b\u002BLMaZ7hXQERDzmgEjLEhZ1xegV05ZwD4ADIfbQvXfz00AAAAAElFTkSuQmCC",
+              "WhenOpened": "2026-01-21T18:42:45.623Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "WartCropsConfig.java",
+              "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\farming\\WartCropsConfig.java",
+              "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\config\\farming\\WartCropsConfig.java",
+              "ToolTip": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\farming\\WartCropsConfig.java",
+              "RelativeToolTip": "src\\main\\java\\name\\atlasclient\\config\\farming\\WartCropsConfig.java",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAACIAAAAAAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACdSURBVDhPzZO9CQQhEIWfBwdbgAVsI1ZjG5tdaCEWYmAZBgqmZh5rMJdc4A/scu4G98FLBvlgfAxbtp0wyfv1BL6CqSzbTo/e\u002BiuNwHuPUgqMMQCAdV3hnKufDDQCIQRCCBBC1OND7l2hh3OOlFI/bqlbsNZSzpm01qSUohgjSSmH369b\u002BLMaZ7hXQERDzmgEjLEhZ1xegV05ZwD4ADIfbQvXfz00AAAAAElFTkSuQmCC",
+              "WhenOpened": "2026-01-21T18:42:20.289Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
               "DocumentIndex": 1,
+              "Title": "WartCropsScript.java",
+              "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\farming\\WartCropsScript.java",
+              "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\script\\farming\\WartCropsScript.java",
+              "ToolTip": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\farming\\WartCropsScript.java",
+              "RelativeToolTip": "src\\main\\java\\name\\atlasclient\\script\\farming\\WartCropsScript.java",
+              "ViewState": "AgIAADUCAAAAAAAAAAAAAGECAAAAAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACdSURBVDhPzZO9CQQhEIWfBwdbgAVsI1ZjG5tdaCEWYmAZBgqmZh5rMJdc4A/scu4G98FLBvlgfAxbtp0wyfv1BL6CqSzbTo/e\u002BiuNwHuPUgqMMQCAdV3hnKufDDQCIQRCCBBC1OND7l2hh3OOlFI/bqlbsNZSzpm01qSUohgjSSmH369b\u002BLMaZ7hXQERDzmgEjLEhZ1xegV05ZwD4ADIfbQvXfz00AAAAAElFTkSuQmCC",
+              "WhenOpened": "2026-01-21T18:40:11.061Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 14,
+              "Title": "Script.java",
+              "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\Script.java",
+              "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\script\\Script.java",
+              "ToolTip": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\Script.java",
+              "RelativeToolTip": "src\\main\\java\\name\\atlasclient\\script\\Script.java",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABoAAAAAAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACdSURBVDhPzZO9CQQhEIWfBwdbgAVsI1ZjG5tdaCEWYmAZBgqmZh5rMJdc4A/scu4G98FLBvlgfAxbtp0wyfv1BL6CqSzbTo/e\u002BiuNwHuPUgqMMQCAdV3hnKufDDQCIQRCCBBC1OND7l2hh3OOlFI/bqlbsNZSzpm01qSUohgjSSmH369b\u002BLMaZ7hXQERDzmgEjLEhZ1xegV05ZwD4ADIfbQvXfz00AAAAAElFTkSuQmCC",
+              "WhenOpened": "2026-01-19T18:37:41.879Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 11,
+              "Title": "HudPanel.java",
+              "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\ui\\HudPanel.java",
+              "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\ui\\HudPanel.java",
+              "ToolTip": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\ui\\HudPanel.java",
+              "RelativeToolTip": "src\\main\\java\\name\\atlasclient\\ui\\HudPanel.java",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAABgAAAAAAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACdSURBVDhPzZO9CQQhEIWfBwdbgAVsI1ZjG5tdaCEWYmAZBgqmZh5rMJdc4A/scu4G98FLBvlgfAxbtp0wyfv1BL6CqSzbTo/e\u002BiuNwHuPUgqMMQCAdV3hnKufDDQCIQRCCBBC1OND7l2hh3OOlFI/bqlbsNZSzpm01qSUohgjSSmH369b\u002BLMaZ7hXQERDzmgEjLEhZ1xegV05ZwD4ADIfbQvXfz00AAAAAElFTkSuQmCC",
+              "WhenOpened": "2026-01-19T18:30:29.728Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 13,
+              "Title": "ScriptHudOverlay.java",
+              "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\ui\\ScriptHudOverlay.java",
+              "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\ui\\ScriptHudOverlay.java",
+              "ToolTip": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\ui\\ScriptHudOverlay.java",
+              "RelativeToolTip": "src\\main\\java\\name\\atlasclient\\ui\\ScriptHudOverlay.java",
+              "ViewState": "AgIAAFQAAAAAAAAAAAAUwGgAAAAAAAAAAAAAAA==",
+              "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACdSURBVDhPzZO9CQQhEIWfBwdbgAVsI1ZjG5tdaCEWYmAZBgqmZh5rMJdc4A/scu4G98FLBvlgfAxbtp0wyfv1BL6CqSzbTo/e\u002BiuNwHuPUgqMMQCAdV3hnKufDDQCIQRCCBBC1OND7l2hh3OOlFI/bqlbsNZSzpm01qSUohgjSSmH369b\u002BLMaZ7hXQERDzmgEjLEhZ1xegV05ZwD4ADIfbQvXfz00AAAAAElFTkSuQmCC",
+              "WhenOpened": "2026-01-19T18:30:21.133Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 9,
               "Title": "Rotation.java",
               "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\Rotation.java",
               "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\config\\Rotation.java",
               "ToolTip": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\Rotation.java",
               "RelativeToolTip": "src\\main\\java\\name\\atlasclient\\config\\Rotation.java",
-              "ViewState": "AgIAAAkAAAAAAAAAAAAAABQAAAAoAAAAAAAAAA==",
+              "ViewState": "AgIAABIAAAAAAAAAAAAUwHkAAAAAAAAAAAAAAA==",
               "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACdSURBVDhPzZO9CQQhEIWfBwdbgAVsI1ZjG5tdaCEWYmAZBgqmZh5rMJdc4A/scu4G98FLBvlgfAxbtp0wyfv1BL6CqSzbTo/e\u002BiuNwHuPUgqMMQCAdV3hnKufDDQCIQRCCBBC1OND7l2hh3OOlFI/bqlbsNZSzpm01qSUohgjSSmH369b\u002BLMaZ7hXQERDzmgEjLEhZ1xegV05ZwD4ADIfbQvXfz00AAAAAElFTkSuQmCC",
               "WhenOpened": "2026-01-18T02:33:03.646Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 0,
               "Title": "AtlasMainScreen.java",
               "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\ui\\AtlasMainScreen.java",
               "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\ui\\AtlasMainScreen.java",
               "ToolTip": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\ui\\AtlasMainScreen.java",
               "RelativeToolTip": "src\\main\\java\\name\\atlasclient\\ui\\AtlasMainScreen.java",
-              "ViewState": "AgIAAKYEAAAAAAAAAAAgwNQEAAABAAAAAAAAAA==",
+              "ViewState": "AgIAAMMFAAAAAAAAAAAAAO8FAAAAAAAAAAAAAA==",
               "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACdSURBVDhPzZO9CQQhEIWfBwdbgAVsI1ZjG5tdaCEWYmAZBgqmZh5rMJdc4A/scu4G98FLBvlgfAxbtp0wyfv1BL6CqSzbTo/e\u002BiuNwHuPUgqMMQCAdV3hnKufDDQCIQRCCBBC1OND7l2hh3OOlFI/bqlbsNZSzpm01qSUohgjSSmH369b\u002BLMaZ7hXQERDzmgEjLEhZ1xegV05ZwD4ADIfbQvXfz00AAAAAElFTkSuQmCC",
               "WhenOpened": "2026-01-18T00:58:03.88Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 4,
+              "DocumentIndex": 10,
               "Title": "HubForagerConfig.java",
               "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\foraging\\HubForagerConfig.java",
               "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\config\\foraging\\HubForagerConfig.java",
@@ -97,20 +250,20 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 8,
               "Title": "HubForagingScript.java",
               "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\foraging\\HubForagingScript.java",
               "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\script\\foraging\\HubForagingScript.java",
               "ToolTip": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\foraging\\HubForagingScript.java",
               "RelativeToolTip": "src\\main\\java\\name\\atlasclient\\script\\foraging\\HubForagingScript.java",
-              "ViewState": "AgIAALYFAAAAAAAAAAAgwOQFAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAC8DAAAAAAAAAAAUwF0DAAABAAAAAAAAAA==",
               "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACdSURBVDhPzZO9CQQhEIWfBwdbgAVsI1ZjG5tdaCEWYmAZBgqmZh5rMJdc4A/scu4G98FLBvlgfAxbtp0wyfv1BL6CqSzbTo/e\u002BiuNwHuPUgqMMQCAdV3hnKufDDQCIQRCCBBC1OND7l2hh3OOlFI/bqlbsNZSzpm01qSUohgjSSmH369b\u002BLMaZ7hXQERDzmgEjLEhZ1xegV05ZwD4ADIfbQvXfz00AAAAAElFTkSuQmCC",
               "WhenOpened": "2026-01-17T23:02:30.577Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 15,
               "Title": "HubForagerConfigSection.java",
               "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\sections\\foraging\\HubForagerConfigSection.java",
               "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\config\\sections\\foraging\\HubForagerConfigSection.java",
@@ -123,7 +276,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 5,
+              "DocumentIndex": 16,
               "Title": "ConfigManager.java",
               "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\ConfigManager.java",
               "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\config\\ConfigManager.java",
@@ -136,7 +289,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 6,
+              "DocumentIndex": 17,
               "Title": "ConfigSection.java",
               "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\ConfigSection.java",
               "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\config\\ConfigSection.java",
@@ -149,7 +302,7 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 7,
+              "DocumentIndex": 18,
               "Title": "ScriptManager.java",
               "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\ScriptManager.java",
               "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\script\\ScriptManager.java",
@@ -162,20 +315,20 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 8,
+              "DocumentIndex": 7,
               "Title": "PathfindScript.java",
               "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\misc\\PathfindScript.java",
               "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\script\\misc\\PathfindScript.java",
               "ToolTip": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\misc\\PathfindScript.java",
               "RelativeToolTip": "src\\main\\java\\name\\atlasclient\\script\\misc\\PathfindScript.java",
-              "ViewState": "AgIAANwGAAAAAAAAAAAiwA4HAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAOAIAAAAAAAAAAAUwA4JAAABAAAAAAAAAA==",
               "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACdSURBVDhPzZO9CQQhEIWfBwdbgAVsI1ZjG5tdaCEWYmAZBgqmZh5rMJdc4A/scu4G98FLBvlgfAxbtp0wyfv1BL6CqSzbTo/e\u002BiuNwHuPUgqMMQCAdV3hnKufDDQCIQRCCBBC1OND7l2hh3OOlFI/bqlbsNZSzpm01qSUohgjSSmH369b\u002BLMaZ7hXQERDzmgEjLEhZ1xegV05ZwD4ADIfbQvXfz00AAAAAElFTkSuQmCC",
               "WhenOpened": "2026-01-15T17:07:10.369Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 9,
+              "DocumentIndex": 19,
               "Title": "Debug.java",
               "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\config\\Debug.java",
               "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\config\\Debug.java",
@@ -188,13 +341,13 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 10,
+              "DocumentIndex": 12,
               "Title": "MithrilMiningScript.java",
               "DocumentMoniker": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\mining\\MithrilMiningScript.java",
               "RelativeDocumentMoniker": "src\\main\\java\\name\\atlasclient\\script\\mining\\MithrilMiningScript.java",
               "ToolTip": "C:\\Users\\Notandi\\Documents\\GitHub\\Atlas-Client\\src\\main\\java\\name\\atlasclient\\script\\mining\\MithrilMiningScript.java",
               "RelativeToolTip": "src\\main\\java\\name\\atlasclient\\script\\mining\\MithrilMiningScript.java",
-              "ViewState": "AgIAAJMEAAAAAAAAAADwv8QEAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAEIAAAAAAAAAAAAAAMQEAAAAAAAAAAAAAA==",
               "Icon": "00000000-0000-0000-0000-000000000000.000000|iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACdSURBVDhPzZO9CQQhEIWfBwdbgAVsI1ZjG5tdaCEWYmAZBgqmZh5rMJdc4A/scu4G98FLBvlgfAxbtp0wyfv1BL6CqSzbTo/e\u002BiuNwHuPUgqMMQCAdV3hnKufDDQCIQRCCBBC1OND7l2hh3OOlFI/bqlbsNZSzpm01qSUohgjSSmH369b\u002BLMaZ7hXQERDzmgEjLEhZ1xegV05ZwD4ADIfbQvXfz00AAAAAElFTkSuQmCC",
               "WhenOpened": "2026-01-14T03:25:39.672Z",
               "EditorCaption": ""

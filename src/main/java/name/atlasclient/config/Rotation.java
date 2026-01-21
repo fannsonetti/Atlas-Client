@@ -10,7 +10,52 @@ public final class Rotation {
 
     private Rotation() {}
 
+    
+
     // ---------------------------------------------------------------------
+    // Cooperative rotation arbitration (prevents scripts fighting / flicking)
+    // ---------------------------------------------------------------------
+    private static String rotationOwner = null;
+    private static long rotationOwnerUntilTick = -1L;
+
+    /** Returns true if {@code owner} may apply rotation changes at {@code nowTick}. */
+    public static synchronized boolean allowRotation(String owner, long nowTick) {
+        if (rotationOwner != null && nowTick > rotationOwnerUntilTick) {
+            rotationOwner = null;
+            rotationOwnerUntilTick = -1L;
+        }
+        return rotationOwner == null || rotationOwner.equals(owner);
+    }
+
+    /**
+     * Attempts to claim rotation control for {@code ttlTicks}. Returns true if the claim is granted.
+     * If already owned by {@code owner}, extends the lease.
+     */
+    public static synchronized boolean tryClaimRotation(String owner, long nowTick, int ttlTicks) {
+        if (ttlTicks < 1) ttlTicks = 1;
+
+        if (rotationOwner != null && nowTick > rotationOwnerUntilTick) {
+            rotationOwner = null;
+            rotationOwnerUntilTick = -1L;
+        }
+
+        if (rotationOwner == null || rotationOwner.equals(owner)) {
+            rotationOwner = owner;
+            rotationOwnerUntilTick = nowTick + ttlTicks;
+            return true;
+        }
+        return false;
+    }
+
+    /** Releases rotation control if currently owned by {@code owner}. */
+    public static synchronized void releaseRotation(String owner) {
+        if (rotationOwner != null && rotationOwner.equals(owner)) {
+            rotationOwner = null;
+            rotationOwnerUntilTick = -1L;
+        }
+    }
+
+// ---------------------------------------------------------------------
     // Defaults / state
     // ---------------------------------------------------------------------
 

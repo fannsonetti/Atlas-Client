@@ -1,5 +1,6 @@
 package name.atlasclient.script.misc;
 
+import name.atlasclient.config.Rotation;
 import name.atlasclient.script.Script;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
@@ -38,6 +39,14 @@ import java.util.*;
  * ASCII-only.
  */
 public final class PathfindScript implements Script {
+    // HubForagingScript-style path debug color (RGBA)
+    private static final float PATH_R = 0.35f;
+    private static final float PATH_G = 0.85f;
+    private static final float PATH_B = 1.00f;
+    // Default alpha for "connected" path nodes (HubForagingScript uses 0.15f)
+    private static final float PATH_A = 0.15f;
+
+
 
     // ---------------------------------------------------------------------
     // Default destination
@@ -79,6 +88,20 @@ public final class PathfindScript implements Script {
 
     private Vec3d currentWalkTarget = null;
     private BlockPos currentSegmentGoal = null;
+
+    // Rotation planner state (shared Rotation.java config; same as HubForagingScript)
+    private boolean rotating = false;
+    private float startYaw, startPitch;
+    private float goalYaw, goalPitch;
+    private float rotT = 0f;
+
+    // Noise (applied gently; avoid first-tick flick)
+    private float noiseYaw = 0f;
+    private float noisePitch = 0f;
+
+    // LOS steering smoothing (reduces choppy yaw changes)
+    private BlockPos cachedLosTarget = null;
+    private int losRetargetCooldown = 0;
 
     private final List<BlockPos> routeCheckpoints = new ArrayList<>();
     private int checkpointIndex = 0;
@@ -127,15 +150,37 @@ public final class PathfindScript implements Script {
     // Render hook
     private static boolean RENDER_HOOK_REGISTERED = false;
 
-    // Visual ribbon color (ARGB 0xFF3D7294)
-    private static final int PATH_COLOR_ARGB = 0xFF3D7294; // requested
-    private static final float PATH_A = ((PATH_COLOR_ARGB >>> 24) & 0xFF) / 255.0f;
-    private static final float PATH_R = ((PATH_COLOR_ARGB >>> 16) & 0xFF) / 255.0f;
-    private static final float PATH_G = ((PATH_COLOR_ARGB >>>  8) & 0xFF) / 255.0f;
-    private static final float PATH_B = ((PATH_COLOR_ARGB       ) & 0xFF) / 255.0f;
+    // Visuals: match HubForagingScript highlight
+    private static final float H_R = 0.35f;
+    private static final float H_G = 0.85f;
+    private static final float H_B = 1.00f;
+    private static final float TARGET_ALPHA = 0.50f;
+    private static final float CONNECTED_ALPHA = 0.15f;
+
+
+    // Block highlight (matches HubForagingScript oak log highlight opacity)
+    private static final float BLOCK_R = PATH_R;
+    private static final float BLOCK_G = PATH_G;
+    private static final float BLOCK_B = PATH_B;
+    private static final float BLOCK_ALPHA = 0.50f;
     private static final float NODE_RADIUS = 0.24f;
     private static final int NODE_SEGS = 16;
     private static final double FLOOR_RIBBON_Y_OFFSET = 0.02; // visible above floor
+
+    // Path polyline rendering: draw dense tiny boxes (DebugRenderer.drawBox) along segments.
+    // This uses the same debug renderer pipeline as HubForagingScript highlights, which
+    // yields consistent perceived color/opacity vs. the RenderLayer.getLines() pipeline.
+    private static final float PATH_SEGMENT_ALPHA = 0.55f;
+    private static final float PATH_DOT_HALF_EXTENT = 0.08f; // smaller looks like a line, not blocks
+    private static final double PATH_DOT_STEP = 0.12;        // sampling density along segment
+
+    // Camera rotation smoothing
+    private static final float YAW_DEADZONE_DEG = 3.0f;
+    private static final int LOS_RETARGET_COOLDOWN_TICKS = 5;
+
+    // Step/jump classification based on walk-surface deltas
+    private static final double STEP_NO_JUMP_MAX = 0.62; // vanilla step height ~0.6
+    private static final double STEP_JUMP_MAX = 1.05;    // allow 1-block-ish jump, disallow 1.5
 
     // ---------------------------------------------------------------------
     // Public API
@@ -255,7 +300,7 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
     // Visual overlay: target is ~1.01x a block (avoid 1.1x-1.2x appearance).
     // Box.expand(e) expands on both sides: final size = 1.0 + 2e.
     // 1.0 + 2e = 1.01 => e = 0.005.
-    private static final double BOX_EXPAND = 0.005;
+    private static final double BOX_EXPAND = 0.002;
 
     // Jump control
     private static final int JUMP_HOLD_TICKS = 3;
@@ -325,6 +370,11 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
     // Some Atlas builds use a Script interface that does not declare run(MinecraftClient).
     // Keep the method (it is how this script is executed), but do not mark it as @Override.
     public void run(MinecraftClient client) {
+        // Smooth head rotation (Rotation.java)
+        if (client.player != null && Rotation.allowRotation("pathfind", client.player.age)) {
+            updateRotation(client);
+        }
+
         if (!enabled) return;
         if (client == null || client.player == null || client.world == null) {
             releaseKeys();
@@ -437,11 +487,10 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
         // Progress index (for jump logic + LOS lookahead)
         updatePathIndexForgiving(player.getPos(), world);
 
-        // Select a safe LOS target along the path (body-safe, not just eye ray)
-        BlockPos los = selectLineOfSightTarget(world, player, currentPath, pathNodeIndex);
-        if (los != null) {
-            currentWalkTarget = centerOf(los);
-        }
+        // Select a safe LOS target along the path (body-safe, not just eye ray), but do not
+        // retarget every tick (reduces choppy yaw and unnecessary mouse movement).
+        BlockPos los = getSmoothedLosTarget(world, player, currentPath, pathNodeIndex);
+        if (los != null) currentWalkTarget = centerOf(los);
 
         // Compute desired movement keys (A/D corridor steering)
         computeDesiredMovement(client, player, startFeet, segmentEnd);
@@ -460,7 +509,30 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
         client.options.sprintKey.setPressed(false);
         client.options.jumpKey.setPressed(desiredJump);
         client.options.sneakKey.setPressed(desiredSneak);
-        lastForward = desiredForward;
+
+boolean prevForward = lastForward;
+lastForward = desiredForward;
+
+// If we have just started walking, claim rotation briefly to prevent other scripts from snapping us back.
+if (!prevForward && desiredForward && client.player != null) {
+    Rotation.tryClaimRotation("pathfind", client.player.age, 8);
+}
+}
+
+    private BlockPos getSmoothedLosTarget(World world, ClientPlayerEntity player, List<BlockPos> path, int startIndex) {
+        if (world == null || player == null || path == null || path.isEmpty()) return null;
+
+        if (losRetargetCooldown > 0 && cachedLosTarget != null) {
+            losRetargetCooldown--;
+            return cachedLosTarget;
+        }
+
+        BlockPos fresh = selectLineOfSightTarget(world, player, path, startIndex);
+        if (fresh != null) {
+            cachedLosTarget = fresh;
+            losRetargetCooldown = LOS_RETARGET_COOLDOWN_TICKS;
+        }
+        return cachedLosTarget;
     }
 
     private void computeDesiredMovement(MinecraftClient client, ClientPlayerEntity player, BlockPos start, BlockPos segmentEnd) {
@@ -491,18 +563,28 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
             return;
         }
 
-        // Prefer a body-safe LOS target along the actual path (prevents corner cutting).
+        // Prefer a body-safe LOS target along the actual path (prevents corner cutting), but
+        // use the smoothed (cached) target so yaw does not jitter.
         BlockPos aimBlock = stopGoal;
         if (currentPath != null && !currentPath.isEmpty()) {
-            BlockPos los = selectLineOfSightTarget(client.world, player, currentPath, pathNodeIndex);
+            BlockPos los = getSmoothedLosTarget(client.world, player, currentPath, pathNodeIndex);
             if (los != null) aimBlock = los;
         }
 
         Vec3d aim = centerOf(aimBlock);
         float desiredYaw = computeDesiredYaw(player.getPos(), aim);
         float yawError = Math.abs(MathHelper.wrapDegrees(desiredYaw - player.getYaw()));
-        float yawStep = adaptiveYawStep(yawError);
-        setPlayerYawSmooth(player, desiredYaw, yawStep);
+
+        // If we are already aligned and moving forward, do not touch the mouse.
+        // This prevents the "already straight line" choppiness and reduces visual weirdness.
+        if (!(lastForward && yawError <= YAW_DEADZONE_DEG)) {
+            if (yawError > YAW_DEADZONE_DEG) {
+                float yawStep = adaptiveYawStep(yawError);
+                if (Rotation.allowRotation("pathfind", player.age)) {
+                    planRotation(desiredYaw, player.getPitch());
+                }
+            }
+        }
 
         // Forward-only walking: eliminates diagonal overshoot/zigzag caused by A/D corrections.
         desiredForward = true;
@@ -549,20 +631,15 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
         // Jump: conservative (only when required) - looks ahead for upcoming step-up.
         desiredJump = computeDesiredJump(client, player);
 
-        // If the next path edge is a drop-down, do not hold sneak while trying to step off the ledge.
-        // Sneaking prevents falling, and was the primary cause of "knows it needs to go down but won't go down".
-        if (desiredSneak && currentPath != null && pathNodeIndex + 1 < currentPath.size()) {
-            BlockPos a = currentPath.get(pathNodeIndex);
-            BlockPos b = currentPath.get(pathNodeIndex + 1);
-            if (isDropRequiredForEdge(client.world, a, b)) {
-                double speedXZ = new Vec3d(player.getVelocity().x, 0.0, player.getVelocity().z).length();
-                double edgeTol = 0.30 + MathHelper.clamp(speedXZ * 1.2, 0.0, 0.25);
-                if (isNearEdgeToward(a, b, player.getPos(), edgeTol, 0.70)) {
-                    desiredSneak = false;
-                }
-            }
-        }
-
+        // If the next path edge is a drop-down, never sneak.
+// Sneaking prevents stepping off ledges and can deadlock near goals (especially when the goal is below).
+if (currentPath != null && pathNodeIndex + 1 < currentPath.size()) {
+    BlockPos a = currentPath.get(pathNodeIndex);
+    BlockPos b = currentPath.get(pathNodeIndex + 1);
+    if (isDropRequiredForEdge(client.world, a, b)) {
+        desiredSneak = false;
+    }
+}
 
         // AoTE (optional)
         if (ENABLE_AOTE && desiredForward) {
@@ -717,7 +794,8 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
         double fromFloor = getWalkSurfaceY(world, fromAir);
         double toFloor = getWalkSurfaceY(world, toAir);
         double d = toFloor - fromFloor;
-        return d > 0.55 && d <= 1.05;
+        // Use surface delta rather than block Y delta so slabs/stairs are handled correctly.
+        return d > STEP_NO_JUMP_MAX && d <= STEP_JUMP_MAX;
     }
 
     private static boolean isDropRequiredForEdge(World world, BlockPos fromAir, BlockPos toAir) {
@@ -729,7 +807,7 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
         double fromFloor = getWalkSurfaceY(world, fromAir);
         double toFloor = getWalkSurfaceY(world, toAir);
         double d = toFloor - fromFloor;
-        return d < -0.55 && d >= -5.0;
+        return d < -STEP_NO_JUMP_MAX && d >= -5.0;
     }
 
     private static boolean isNearEdgeToward(BlockPos lead, BlockPos dest, Vec3d pos, double edgeTol, double lateralTol) {
@@ -741,12 +819,12 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
             double edgeX = lead.getX() + (sx > 0 ? 1.0 : 0.0);
             double forwardDist = (sx > 0) ? (edgeX - pos.x) : (pos.x - edgeX);
             double lateral = Math.abs(pos.z - (lead.getZ() + 0.5));
-            return (forwardDist <= edgeTol && forwardDist >= -0.10 && lateral <= lateralTol);
+            return (forwardDist <= edgeTol && forwardDist >= -0.55 && lateral <= lateralTol);
         } else if (sz != 0) {
             double edgeZ = lead.getZ() + (sz > 0 ? 1.0 : 0.0);
             double forwardDist = (sz > 0) ? (edgeZ - pos.z) : (pos.z - edgeZ);
             double lateral = Math.abs(pos.x - (lead.getX() + 0.5));
-            return (forwardDist <= edgeTol && forwardDist >= -0.10 && lateral <= lateralTol);
+            return (forwardDist <= edgeTol && forwardDist >= -0.55 && lateral <= lateralTol);
         }
         return false;
     }
@@ -862,39 +940,37 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
 
         if (stepLead == null || stepDest == null) return false;
 
-        // Must actually be near the step lead-in, otherwise do not jump yet.
-        // At higher horizontal speeds, allow triggering slightly earlier to compensate for overshooting.
-        double speedXZ = new Vec3d(player.getVelocity().x, 0.0, player.getVelocity().z).length();
-
-        // Jump trigger should be based on being near the ledge edge in the correct direction,
-        // not on being near the center of the lead-in node (which is often false when you approach offset).
+                // Jump trigger should be based on being near the ledge edge in the correct direction,
+        // and should work reliably on diagonals and offset approaches.
         BlockPos d = stepDest.subtract(stepLead);
         int sx = Integer.signum(d.getX());
         int sz = Integer.signum(d.getZ());
+        if (sx == 0 && sz == 0) return false;
 
         Vec3d p = player.getPos();
 
-        // Lateral tolerance (how far off-center we allow while still jumping).
-        double lateralTol = 0.60;
+        Vec3d leadCenter = new Vec3d(stepLead.getX() + 0.5, p.y, stepLead.getZ() + 0.5);
 
-        // How close we must be to the ledge edge before jumping. Faster movement -> slightly earlier trigger.
-        double edgeTol = 0.30 + MathHelper.clamp(speedXZ * 1.2, 0.0, 0.25);
+        // Direction of travel on XZ plane
+        Vec3d dir = new Vec3d(sx, 0.0, sz).normalize();
 
-        boolean nearEdge = false;
-        if (sx != 0) {
-            double edgeX = stepLead.getX() + (sx > 0 ? 1.0 : 0.0);
-            double forwardDist = (sx > 0) ? (edgeX - p.x) : (p.x - edgeX);
-            double lateral = Math.abs(p.z - (stepLead.getZ() + 0.5));
-            nearEdge = (forwardDist <= edgeTol && forwardDist >= -0.10 && lateral <= lateralTol);
-        } else if (sz != 0) {
-            double edgeZ = stepLead.getZ() + (sz > 0 ? 1.0 : 0.0);
-            double forwardDist = (sz > 0) ? (edgeZ - p.z) : (p.z - edgeZ);
-            double lateral = Math.abs(p.x - (stepLead.getX() + 0.5));
-            nearEdge = (forwardDist <= edgeTol && forwardDist >= -0.10 && lateral <= lateralTol);
-        }
+        Vec3d rel = new Vec3d(p.x - leadCenter.x, 0.0, p.z - leadCenter.z);
 
+        // forward = how far along the step direction you are from center
+        double forward = rel.dotProduct(dir);
+
+        // lateral = perpendicular distance from the travel line (cross magnitude in XZ)
+        double lateral = Math.abs(rel.x * dir.z - rel.z * dir.x);
+
+        double speedXZ = new Vec3d(player.getVelocity().x, 0.0, player.getVelocity().z).length();
+        double edgeTol = 0.60 + MathHelper.clamp(speedXZ * 1.3, 0.0, 0.45);
+        double lateralTol = 0.95;
+
+        // From block center to edge is 0.5. distToEdge is how close we are to the edge in the direction of travel.
+        double distToEdge = 0.5 - forward;
+
+        boolean nearEdge = (distToEdge <= edgeTol && distToEdge >= -0.65 && lateral <= lateralTol);
         if (!nearEdge) return false;
-
         BlockPos upNode = stepDest;
 
         // If we previously failed this specific step-up multiple times, avoid it and repath.
@@ -913,7 +989,7 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
         double fromFloor = getWalkSurfaceY(world, stepLead);
         double toFloor = getWalkSurfaceY(world, upNode);
         double floorDelta = toFloor - fromFloor;
-        if (floorDelta <= 0.55 || floorDelta > 1.05) return false;
+        if (floorDelta <= STEP_NO_JUMP_MAX || floorDelta > STEP_JUMP_MAX) return false;
 
         double feetY = player.getBoundingBox().minY;
         if (feetY >= toFloor - 0.02) return false;
@@ -927,20 +1003,20 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
 
         if (!destFeetShape.isEmpty()) return false;
         if (!destHeadShape.isEmpty()) return false;
+        
+// Avoid jumping if we are clearly moving away from the step (use velocity, not camera yaw).
+Vec3d toUp = centerOf(upNode).subtract(player.getPos());
+Vec3d horiz = new Vec3d(toUp.x, 0.0, toUp.z);
+if (horiz.lengthSquared() < 1e-6) return false;
+horiz = horiz.normalize();
+Vec3d v = player.getVelocity();
+Vec3d vXZ = new Vec3d(v.x, 0.0, v.z);
+if (vXZ.lengthSquared() > 1e-6) {
+    vXZ = vXZ.normalize();
+    if (vXZ.dotProduct(horiz) < -0.15) return false;
+}
 
-        // Ensure we are generally moving toward the step direction (avoid jumping in place).
-        Vec3d toUp = centerOf(upNode).subtract(player.getPos());
-        Vec3d horiz = new Vec3d(toUp.x, 0.0, toUp.z);
-        if (horiz.lengthSquared() < 1e-6) return false;
-        horiz = horiz.normalize();
-        Vec3d forward = player.getRotationVec(1.0f);
-        Vec3d forwardXZ = new Vec3d(forward.x, 0.0, forward.z);
-        if (forwardXZ.lengthSquared() > 1e-6) {
-            forwardXZ = forwardXZ.normalize();
-            if (forwardXZ.dotProduct(horiz) < -0.10) return false;
-        }
-
-        onStepUpAttemptStarted(stepLead, upNode);
+onStepUpAttemptStarted(stepLead, upNode);
         jumpHoldTicks = JUMP_HOLD_TICKS;
         jumpCooldownTicks = JUMP_COOLDOWN_TICKS;
         return true;
@@ -1113,12 +1189,11 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
         double cy = camera.getPos().y;
         double cz = camera.getPos().z;
 
-        // Path ribbon
-        if (inst.currentPath != null && inst.currentPath.size() >= 2) {
-            renderPathRibbon(matrices, consumers, cx, cy, cz, inst.currentPath);
+        // Path highlight (HubForagingScript style)
+        if (inst.currentPath != null && !inst.currentPath.isEmpty()) {
+            renderPathHighlights(matrices, consumers, cx, cy, cz, inst.currentPath, inst.pathNodeIndex);
         }
-
-        renderCheckpointOverlays(matrices, consumers, cx, cy, cz, inst);
+renderCheckpointOverlays(matrices, consumers, cx, cy, cz, inst);
     }
 
     /**
@@ -1128,56 +1203,49 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
      * - Draws a single line segment between nodes.
      * - Renders clear marker blocks at corners (wireframe outline + semi-transparent fill).
      */
-    private static void renderPathRibbon(MatrixStack matrices, VertexConsumerProvider consumers,
-                                         double camX, double camY, double camZ, List<BlockPos> path) {
-        if (path == null || path.size() < 2) return;
+    private static void renderPathHighlights(MatrixStack matrices, VertexConsumerProvider consumers,
+                                         double camX, double camY, double camZ,
+                                         List<BlockPos> path, int nodeIndex) {
+        if (path == null || path.isEmpty()) return;
 
-        // Limit rendered nodes to avoid large buffers.
         int max = Math.min(path.size(), RENDER_MAX_WHITE_NODES);
+        int idx = MathHelper.clamp(nodeIndex, 0, max - 1);
 
-        // A stable, visible floor offset.
-        double y = FLOOR_RIBBON_Y_OFFSET;
-        for (int i = 0; i < max - 1; i++) {
-            Vec3d p0 = centerOf(path.get(i)).add(0.0, y, 0.0);
-            Vec3d p1 = centerOf(path.get(i + 1)).add(0.0, y, 0.0);
+        // Draw "connected" nodes
+        for (int i = 0; i < max; i++) {
+            BlockPos p0 = path.get(i);
+            if (p0 == null) continue;
 
-            // Single line segment between nodes.
-            drawLine3d(matrices, consumers, camX, camY, camZ, p0, p1, PATH_R, PATH_G, PATH_B, PATH_A);
+            // Path nodes are typically "air" positions where the player stands.
+            // For visuals (to match HubForagingScript block highlights), draw the solid block under air nodes.
+            World w = MinecraftClient.getInstance().world;
+            BlockPos p = p0;
+            if (w != null && w.getBlockState(p0).isAir() && !w.getBlockState(p0.down()).isAir()) {
+                p = p0.down();
+            }
+            if (i == idx) continue;
+
+            Box b = new Box(p).expand(BOX_EXPAND).offset(-camX, -camY, -camZ);
+            DebugRenderer.drawBox(matrices, consumers, b, H_R, H_G, H_B, CONNECTED_ALPHA);
         }
 
-        // Marker blocks at corners (and start/end): wireframe outline + 50% translucent fill.
-        // This replaces the old node-circle visuals.
-        int marked = 0;
-        if (max >= 1) {
-            drawMarkerBoxAt(renderPos(path.get(0)), matrices, consumers, camX, camY, camZ,
-                    PATH_R, PATH_G, PATH_B, 0.50f);
-            marked++;
-        }
-
-        for (int i = 1; i < max - 1 && marked < CORNER_MARK_MAX; i++) {
-            BlockPos prev = path.get(i - 1);
-            BlockPos cur = path.get(i);
-            BlockPos next = path.get(i + 1);
-            if (prev == null || cur == null || next == null) continue;
-
-            int dx0 = Integer.signum(cur.getX() - prev.getX());
-            int dz0 = Integer.signum(cur.getZ() - prev.getZ());
-            int dx1 = Integer.signum(next.getX() - cur.getX());
-            int dz1 = Integer.signum(next.getZ() - cur.getZ());
-
-            // A corner is a change in horizontal direction.
-            if (dx0 != dx1 || dz0 != dz1) {
-                drawMarkerBoxAt(renderPos(cur), matrices, consumers, camX, camY, camZ,
-                        PATH_R, PATH_G, PATH_B, 0.50f);
-                marked++;
+        // Draw current/next node as "target"
+        if (idx >= 0 && idx < max) {
+            BlockPos np0 = path.get(idx);
+            World w2 = MinecraftClient.getInstance().world;
+            BlockPos np = np0;
+            if (np0 != null && w2 != null && w2.getBlockState(np0).isAir() && !w2.getBlockState(np0.down()).isAir()) {
+                np = np0.down();
+            }
+            if (np != null) {
+                Box nb = new Box(np).expand(BOX_EXPAND).offset(-camX, -camY, -camZ);
+                DebugRenderer.drawBox(matrices, consumers, nb, H_R, H_G, H_B, TARGET_ALPHA);
             }
         }
-
-        if (max >= 2 && marked < CORNER_MARK_MAX) {
-            drawMarkerBoxAt(renderPos(path.get(max - 1)), matrices, consumers, camX, camY, camZ,
-                    PATH_R, PATH_G, PATH_B, 0.50f);
-        }
     }
+
+
+
 
 
 
@@ -1186,18 +1254,23 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
                                                  PathfindScript inst) {
         if (inst == null) return;
 
-        // Theme color matches PATH_COLOR_ARGB.
-        final float r = PATH_R;
-        final float g = PATH_G;
-        final float b = PATH_B;
+        // Boxes match HubForagingScript oak log highlight.
+        final float br = BLOCK_R;
+        final float bg = BLOCK_G;
+        final float bb = BLOCK_B;
+        // Lines keep PATH_COLOR_ARGB.
+        final float lr = PATH_R;
+        final float lg = PATH_G;
+        final float lb = PATH_B;
+        final float la = PATH_A;
         // Highlight final destination block (if present).
         if (inst.finalTargetBlock != null) {
-            drawBoxAt(renderPos(inst.finalTargetBlock), matrices, consumers, camX, camY, camZ, r, g, b, 0.50f);
+            drawBoxAt(renderPos(inst.finalTargetBlock), matrices, consumers, camX, camY, camZ, br, bg, bb, BLOCK_ALPHA);
         }
 
         // Highlight current segment / checkpoint goal.
         if (inst.currentSegmentGoal != null) {
-            drawBoxAt(renderPos(inst.currentSegmentGoal), matrices, consumers, camX, camY, camZ, r, g, b, 0.50f);
+            drawBoxAt(renderPos(inst.currentSegmentGoal), matrices, consumers, camX, camY, camZ, br, bg, bb, BLOCK_ALPHA);
         }
 
         // Checkpoints: block highlights + a single line from each checkpoint to the next.
@@ -1208,21 +1281,81 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
             if (cp == null) continue;
 
             boolean isNext = (i == inst.checkpointIndex);
-            drawBoxAt(renderPos(cp), matrices, consumers, camX, camY, camZ, r, g, b, 0.50f);
+            drawBoxAt(renderPos(cp), matrices, consumers, camX, camY, camZ, br, bg, bb, BLOCK_ALPHA);
 
             // Single line drawing from this checkpoint to the next checkpoint (or final goal).
-            Vec3d aPos = centerOf(renderPos(cp)).add(0.0, FLOOR_RIBBON_Y_OFFSET, 0.0);
             BlockPos next = null;
             if (i + 1 < inst.routeCheckpoints.size()) next = inst.routeCheckpoints.get(i + 1);
             else if (inst.finalTargetBlock != null) next = inst.finalTargetBlock;
+
             if (next != null) {
-                Vec3d bPos = centerOf(renderPos(next)).add(0.0, FLOOR_RIBBON_Y_OFFSET, 0.0);
-                drawLine3d(matrices, consumers, camX, camY, camZ, aPos, bPos, r, g, b, isNext ? 0.95f : 0.55f);
+                // depth test toggle omitted (compat)
+                try {
+                    List<Vec3d> pts = buildVisibleSegmentPoints(MinecraftClient.getInstance().world, renderPos(cp), renderPos(next));
+                    for (int k = 0; k + 1 < pts.size(); k++) {
+                        drawLine3d(matrices, consumers, camX, camY, camZ,
+                                pts.get(k), pts.get(k + 1),
+                                lr, lg, lb, la);
+                    }
+                } finally {
+                    // depth test toggle omitted (compat)
+                }
             }
         }
     }
 
-    private static void drawCircle3d(MatrixStack matrices, VertexConsumerProvider consumers,
+    
+    /**
+     * Returns a path point centered on the cell but placed on the computed walk surface (slab-aware),
+     * with a tiny offset so the line never z-fights with the floor.
+     */
+    private static Vec3d nodePoint(World world, BlockPos cell) {
+        if (cell == null) return Vec3d.ZERO;
+        double y = (world == null) ? (cell.getY() + FLOOR_RIBBON_Y_OFFSET)
+                : (getWalkSurfaceY(world, cell) + FLOOR_RIBBON_Y_OFFSET);
+        return new Vec3d(cell.getX() + 0.5, y, cell.getZ() + 0.5);
+    }
+
+    /**
+     * For vertical transitions, draw an "L-shaped" polyline that hugs the outside edge of the block,
+     * instead of a 45-degree diagonal that can clip into geometry.
+     */
+    private static List<Vec3d> buildVisibleSegmentPoints(World world, BlockPos a, BlockPos b) {
+        Vec3d p0 = nodePoint(world, renderPos(a));
+        Vec3d p1 = nodePoint(world, renderPos(b));
+
+        double dy = p1.y - p0.y;
+        if (Math.abs(dy) <= 1e-4) {
+            return List.of(p0, p1);
+        }
+
+        int dx = Integer.signum(b.getX() - a.getX());
+        int dz = Integer.signum(b.getZ() - a.getZ());
+
+        // If purely vertical (rare), just draw vertical.
+        if (dx == 0 && dz == 0) return List.of(p0, p1);
+
+        // Choose the dominant horizontal axis to avoid cutting corners into blocks.
+        boolean useX = (Math.abs(b.getX() - a.getX()) >= Math.abs(b.getZ() - a.getZ()));
+
+        double edgeX = a.getX() + 0.5;
+        double edgeZ = a.getZ() + 0.5;
+
+        if (useX && dx != 0) edgeX = a.getX() + (dx > 0 ? 1.0 : 0.0);
+        else if (!useX && dz != 0) edgeZ = a.getZ() + (dz > 0 ? 1.0 : 0.0);
+        else {
+            // Fallback to any available axis.
+            if (dx != 0) edgeX = a.getX() + (dx > 0 ? 1.0 : 0.0);
+            if (dz != 0) edgeZ = a.getZ() + (dz > 0 ? 1.0 : 0.0);
+        }
+
+        Vec3d edgeLow = new Vec3d(edgeX, p0.y, edgeZ);
+        Vec3d edgeHigh = new Vec3d(edgeX, p1.y, edgeZ);
+
+        return List.of(p0, edgeLow, edgeHigh, p1);
+    }
+
+private static void drawCircle3d(MatrixStack matrices, VertexConsumerProvider consumers,
                                      double camX, double camY, double camZ,
                                      Vec3d center, double radius, int segs,
                                      float r, float g, float b, float a) {
@@ -1259,6 +1392,39 @@ private static final float DEST_R  = 0.0f, DEST_G  = 1.0f, DEST_B  = 1.0f, DEST_
         // Strong outline: a second pass with a slightly larger box and full alpha.
         Box outline = new Box(pos).expand(0.006).offset(-camX, -camY, -camZ);
         DebugRenderer.drawBox(matrices, consumers, outline, r, g, b, 1.0f);
+    }
+
+    /**
+     * Draw a segment using the same DebugRenderer pipeline as block highlights by sampling
+     * a dense sequence of tiny boxes along the line. This preserves the perceived color/opacity
+     * that users see on highlight boxes (e.g., HubForagingScript).
+     */
+    private static void drawSegmentAsDots(MatrixStack matrices, VertexConsumerProvider consumers,
+                                         double camX, double camY, double camZ,
+                                         Vec3d a, Vec3d b,
+                                         float r, float g, float bl, float al) {
+        if (matrices == null || consumers == null || a == null || b == null) return;
+
+        double dx = b.x - a.x;
+        double dy = b.y - a.y;
+        double dz = b.z - a.z;
+        double len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (len < 1e-6) return;
+
+        int steps = Math.max(1, (int) Math.ceil(len / PATH_DOT_STEP));
+        for (int i = 0; i <= steps; i++) {
+            double t = (double) i / (double) steps;
+            double x = a.x + dx * t;
+            double y = a.y + dy * t;
+            double z = a.z + dz * t;
+
+            Box dot = new Box(
+                    x - PATH_DOT_HALF_EXTENT, y - 0.001, z - PATH_DOT_HALF_EXTENT,
+                    x + PATH_DOT_HALF_EXTENT, y + 0.001, z + PATH_DOT_HALF_EXTENT
+            ).offset(-camX, -camY, -camZ);
+
+            DebugRenderer.drawBox(matrices, consumers, dot, r, g, bl, al);
+        }
     }
 
 
@@ -1348,15 +1514,110 @@ private static float adaptiveYawStep(float yawErrorDeg) {
         return lerp(YAW_STEP_SMOOTH, YAW_STEP_FAST, t);
     }
 
-    private static void setPlayerYawSmooth(ClientPlayerEntity player, float desiredYaw, float maxStep) {
-        float currentYaw = player.getYaw();
-        float delta = MathHelper.wrapDegrees(desiredYaw - currentYaw);
-        float clamped = MathHelper.clamp(delta, -maxStep, maxStep);
-        float newYaw = currentYaw + clamped;
+    
+    private void planRotation(float yaw, float pitch) {
+    MinecraftClient mc = MinecraftClient.getInstance();
+    if (mc == null || mc.player == null) return;
 
-        player.setYaw(newYaw);
-        player.setHeadYaw(newYaw);
+    float cy = mc.player.getYaw();
+
+    // Normalize yaw to the shortest angular target from current yaw.
+    float normalizedGoalYaw = cy + MathHelper.wrapDegrees(yaw - cy);
+
+    // If we're already rotating to basically the same yaw/pitch, do not restart the plan.
+    if (rotating) {
+        float yawDelta = Math.abs(MathHelper.wrapDegrees(normalizedGoalYaw - goalYaw));
+        float pitchDelta = Math.abs(pitch - goalPitch);
+        if (yawDelta < 1.0f && pitchDelta < 1.0f) return;
     }
+
+    rotating = true;
+    startYaw = cy;
+    startPitch = mc.player.getPitch();
+    goalYaw = normalizedGoalYaw;
+    goalPitch = pitch;
+    rotT = 0f;
+
+    // Noise computed once per plan; kept small to avoid flick.
+    float r = Rotation.getRotationRandomness();
+    noiseYaw = ((float) Math.random() - 0.5f) * 2f * r * 0.35f;
+    noisePitch = ((float) Math.random() - 0.5f) * 2f * r * 0.25f;
+}
+
+
+    private void updateRotation(MinecraftClient mc) {
+        if (!rotating || mc == null || mc.player == null) return;
+
+        if (!Rotation.isBezierRotation()) {
+            float maxStep = linearMaxStepPerTick(Rotation.getRotationSpeed());
+
+            float cy = mc.player.getYaw();
+            float cp = mc.player.getPitch();
+
+            float dy = MathHelper.wrapDegrees(goalYaw - cy);
+            float dp = goalPitch - cp;
+
+            float yawErr = Math.abs(dy);
+            float pitchErr = Math.abs(dp);
+
+            if (yawErr <= maxStep && pitchErr <= maxStep) {
+                rotating = false;
+                mc.player.setYaw(goalYaw + noiseYaw);
+                mc.player.setPitch(goalPitch + noisePitch);
+                mc.player.setHeadYaw(mc.player.getYaw());
+                return;
+            }
+
+            float stepYaw = MathHelper.clamp(dy, -maxStep, maxStep);
+            float stepPitch = MathHelper.clamp(dp, -maxStep, maxStep);
+
+            float newYaw = cy + stepYaw;
+            float newPitch = cp + stepPitch;
+
+            mc.player.setYaw(newYaw);
+            mc.player.setPitch(newPitch);
+            mc.player.setHeadYaw(newYaw);
+            return;
+        }
+
+        // Bezier / eased rotation
+        float speed = bezierStepPerTick(Rotation.getRotationSpeed(), Rotation.getBezierSpeed());
+        rotT = Math.min(1f, rotT + speed);
+
+        float t = rotT;
+        float ease = t * t * (3f - 2f * t); // smoothstep
+
+        float newYaw = lerpAngle(startYaw, goalYaw, ease) + noiseYaw * 0.12f;
+        float newPitch = MathHelper.lerp(ease, startPitch, goalPitch) + noisePitch * 0.12f;
+
+        mc.player.setYaw(newYaw);
+        mc.player.setPitch(newPitch);
+        mc.player.setHeadYaw(newYaw);
+
+        if (rotT >= 1f) rotating = false;
+    }
+
+    private static float lerpAngle(float a, float b, float t) {
+        float d = MathHelper.wrapDegrees(b - a);
+        return a + d * t;
+    }
+
+    private static float linearMaxStepPerTick(int rotationSpeed) {
+        // Faster mapping than the original clamp-step to avoid sluggish/choppy head turns.
+        // Treat Rotation.getRotationSpeed() as a user-configured sensitivity and boost it for per-tick use.
+        int rs = MathHelper.clamp(rotationSpeed * 4, 0, 1000);
+        float t = rs / 1000f;
+        return 2.0f + t * 60.0f; // 2..62 deg/tick
+    }
+
+    private static float bezierStepPerTick(int rotationSpeed, float bezierMultiplier) {
+        int rs = MathHelper.clamp(rotationSpeed * 4, 0, 1000);
+        float t = rs / 1000f;
+        // Progress per tick; higher base so eased rotation converges quickly.
+        float base = 0.035f + (t * 0.140f);
+        return base * MathHelper.clamp(bezierMultiplier, 0.1f, 3.0f);
+    }
+
 
     // LOS steering (corridor-safe)
     private static BlockPos selectLineOfSightTarget(World world, ClientPlayerEntity player,

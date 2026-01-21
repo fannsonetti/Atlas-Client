@@ -1,6 +1,8 @@
 package name.atlasclient.ui;
 
 import name.atlasclient.script.Script;
+import name.atlasclient.script.VariantScript;
+import name.atlasclient.script.ScriptVariant;
 import name.atlasclient.script.ScriptManager;
 import name.atlasclient.script.mining.MithrilMiningScript;
 import name.atlasclient.config.ConfigManager;
@@ -15,12 +17,47 @@ import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import net.minecraft.client.render.RenderLayer;
 
 public class AtlasMainScreen extends Screen {
+/* ============================
+   Script cards: variations + icons
+   ============================ */
+
+public interface ScriptVariations {
+    List<ScriptVariation> variations();
+    String selectedVariationId();
+    void setSelectedVariationId(String variationId);
+}
+
+public static final class ScriptVariation {
+    private final String id;
+    private final String label;
+
+    public ScriptVariation(String id, String label) {
+        this.id = id;
+        this.label = label;
+    }
+
+    public String id() { return id; }
+    public String label() { return label; }
+}
+
+/**
+ * Optional: provide an in-game item icon shown on the left side of the script card.
+ * This avoids bundling custom textures in resources.
+ */
+public interface ScriptItemIconProvider {
+    ItemStack iconItemStack();
+}
+
     private final Screen parent;
     private List<Script> scripts = List.of();
 
@@ -92,8 +129,8 @@ public class AtlasMainScreen extends Screen {
     private static final int CONTROL_WIDTH = 104;
     private static final int CONTROL_HEIGHT = 28; // decrease to make buttons/sliders shorter
 
-    private ButtonWidget searchButton;
-    private ButtonWidget pageButton;
+    private ClickableWidget searchButton;
+    private ClickableWidget pageButton;
 
     // Search
     private boolean searchVisible = false;
@@ -134,9 +171,13 @@ public class AtlasMainScreen extends Screen {
     }
 
     // Script cards
-    private static final int CARD_H = 34;
-    private static final int CARD_GAP = 8;
+    private static final int CARD_H = 64;
+    private static final int CARD_GAP = 12;
     private final List<CardHitbox> cardHitboxes = new ArrayList<>();
+
+    // Variant buttons (per script card)
+    private final List<VariantHitbox> variantHitboxes = new ArrayList<>();
+    private final Map<String, String> selectedVariationByScriptId = new HashMap<>();
 
     // Left tab hitboxes
     private final List<TabHitbox> tabHitboxes = new ArrayList<>();
@@ -206,13 +247,6 @@ public class AtlasMainScreen extends Screen {
         this.searchField.setVisible(this.searchVisible);
         this.searchField.setChangedListener(s -> rebuild());
         addDrawableChild(this.searchField);
-
-        // Back/Close button below the panel
-        addDrawableChild(ButtonWidget.builder(
-                Text.literal(parent == null ? "Close" : "Back"),
-                btn -> MinecraftClient.getInstance().setScreen(parent)
-        ).dimensions(this.width / 2 - 45, this.panelY + this.panelH + 12, 90, 20).build());
-
         // Add settings widgets for the active settings tab
         if (this.currentPage == Page.SETTINGS) {
             addDynamicSettingsWidgets();
@@ -233,7 +267,7 @@ public class AtlasMainScreen extends Screen {
         context.fill(0, 0, this.width, this.height, 0x88000000);
 
         // Panel background
-        drawRoundedRect(context, this.panelX, this.panelY, this.panelW, this.panelH, CORNER_RADIUS, 0xCC101010);
+        drawRoundedRect(context, this.panelX, this.panelY, this.panelW, this.panelH, CORNER_RADIUS, 0xCC080808);
 
         // Left nav area
         drawRoundedRect(context, this.panelX, this.panelY, this.leftAreaW, this.panelH, CORNER_RADIUS, 0xCC0B0B0B);
@@ -410,6 +444,7 @@ int hitboxX = paneX + PADDING;
 
     private void renderScriptsPage(DrawContext context, int mouseX, int mouseY, int x, int y, int w) {
         this.cardHitboxes.clear();
+        this.variantHitboxes.clear();
 
         List<Script> list = filteredScripts();
         int maxCards = Math.max(1, (this.panelH - (PADDING * 2) - 26) / (CARD_H + CARD_GAP));
@@ -430,14 +465,103 @@ int hitboxX = paneX + PADDING;
             int bg = hovered ? 0xCC1B1B1B : 0xCC151515;
             drawRoundedRect(context, cardX, cardY, cardW, cardH, 9, bg);
 
-            // Small top highlight line
-            context.fill(cardX + 8, cardY + 6, cardX + cardW - 8, cardY + 7, 0x402A2A2A);
+                        
+// Icon (Minecraft item)
+int iconSize = 40;
+int iconX = cardX + 10;
+int iconY = cardY + (cardH - iconSize) / 2;
 
-            // Text
-            String title = script.displayName();
-            String sub = script.isEnabled() ? "Running (press Insert to stop)" : "Click to run (press Insert to stop)";
-            context.drawTextWithShadow(this.textRenderer, Text.literal(title), cardX + 10, cardY + 9, 0xFFFFFF);
-            context.drawTextWithShadow(this.textRenderer, Text.literal(sub), cardX + 10, cardY + 20, 0x909090);
+ItemStack iconStack = getScriptIconStack(script);
+context.getMatrices().push();
+            context.getMatrices().translate(iconX, iconY, 0);
+            float s = iconSize / 16.0f;
+            context.getMatrices().scale(s, s, 1.0f);
+            context.drawItem(iconStack, 0, 0);
+            context.getMatrices().pop();
+
+// Text (shifted right of icon)
+int textX = iconX + iconSize + 10;
+
+String title = script.displayName();
+String sub = script.isEnabled() ? "Running (press Insert to stop)" : "Click to run (press Insert to stop)";
+context.drawTextWithShadow(this.textRenderer, Text.literal(title), textX, cardY + 10, 0xFFFFFF);
+context.drawTextWithShadow(this.textRenderer, Text.literal(sub), textX, cardY + 24, 0x909090);
+
+// Variations (right aligned)
+if (script instanceof VariantScript vsv) {
+                List<ScriptVariant> vars = vsv.variants();
+                if (vars != null && !vars.isEmpty()) {
+
+                    String selected = this.selectedVariationByScriptId.getOrDefault(script.id(), vsv.selectedVariantId());
+
+                    int btnH = 16;
+                    int padX = 8;
+                    int gap = 6;
+
+                    int right = cardX + cardW - 12;
+                    int by = cardY + 10;
+
+                    for (int i = vars.size() - 1; i >= 0; i--) {
+                        ScriptVariant v = vars.get(i);
+                        String label = v.label();
+                        int bw = this.textRenderer.getWidth(label) + padX * 2;
+
+                        int bx = right - bw;
+                        right = bx - gap;
+
+                        boolean active = v.id().equalsIgnoreCase(selected);
+
+                        int bgBtn = active ? 0xFF141414 : 0xFF0E0E0E;
+                        drawRoundedRect(context, bx, by, bw, btnH, 7, bgBtn);
+
+                        int border = active ? ACCENT_COLOR : 0xFF1B1B1B;
+                        context.fill(bx, by, bx + bw, by + 1, border);
+                        context.fill(bx, by + btnH - 1, bx + bw, by + btnH, border);
+                        context.fill(bx, by, bx + 1, by + btnH, border);
+                        context.fill(bx + bw - 1, by, bx + bw, by + btnH, border);
+
+                        context.drawText(this.textRenderer, Text.literal(label), bx + padX, by + 4, active ? 0xFFFFFFFF : 0xFFB0B0B0, false);
+
+                        this.variantHitboxes.add(new VariantHitbox(bx, by, bw, btnH, script, v.id()));
+                    }
+                }
+            } else if (script instanceof ScriptVariations vs) {
+    List<ScriptVariation> vars = vs.variations();
+    if (vars != null && !vars.isEmpty()) {
+
+        String selected = this.selectedVariationByScriptId.getOrDefault(script.id(), vs.selectedVariationId());
+
+        int btnH = 16;
+        int padX = 8;
+        int gap = 6;
+
+        int right = cardX + cardW - 10;
+        int by = cardY + 10;
+
+        for (int i = vars.size() - 1; i >= 0; i--) {
+            ScriptVariation v = vars.get(i);
+            int labelW = this.textRenderer.getWidth(v.label());
+            int bw = labelW + (padX * 2);
+
+            int bx = right - bw;
+            right = bx - gap;
+
+            boolean active = v.id().equals(selected);
+
+            drawRoundedRect(context, bx, by, bw, btnH, 6, active ? 0xFF141414 : 0xFF0E0E0E);
+
+            context.drawTextWithShadow(
+                    this.textRenderer,
+                    Text.literal(v.label()),
+                    bx + padX,
+                    by + 4,
+                    active ? 0xFFFFFF : 0xB0B0B0
+            );
+
+            this.variantHitboxes.add(new VariantHitbox(bx, by, bw, btnH, script, v.id()));
+        }
+    }
+}
 
             this.cardHitboxes.add(new CardHitbox(cardX, cardY, cardW, cardH, script));
 
@@ -704,7 +828,7 @@ public static final class AtlasToggleButton extends ClickableWidget {
         int pillBg = isOnPill(mouseX, mouseY) ? 0xFF1F1F1F : 0xFF0D0D0D;
 
         // Border (outer) then fill (inner)
-        int border = val ? ACCENT_COLOR : 0xFF2A2A2A;
+        int border = val ? ACCENT_COLOR : 0xFF141414;
         drawRoundedRect(context, px - 1, py - 1, pillW + 2, pillH + 2, 11, border);
         drawRoundedRect(context, px, py, pillW, pillH, 10, pillBg);
 
@@ -1001,8 +1125,31 @@ private void renderSettingsPage(DrawContext context, int x, int y, int w) {
 
             // Script card clicks
             if (this.currentPage == Page.SCRIPTS) {
+
+                // 1) Variation button clicks (do not close the screen)
+                for (VariantHitbox vb : this.variantHitboxes) {
+                    if (vb.contains((int) mouseX, (int) mouseY)) {
+                        this.selectedVariationByScriptId.put(vb.script.id(), vb.variationId);
+                        if (vb.script instanceof VariantScript vsv) {
+                            vsv.setSelectedVariantId(vb.variationId);
+                        } else if (vb.script instanceof ScriptVariations vs) {
+                            vs.setSelectedVariationId(vb.variationId);
+                        }
+                        return true;
+                    }
+                }
+
+                // 2) Card click: run script (apply selected variation if supported)
                 for (CardHitbox hb : this.cardHitboxes) {
                     if (hb.contains((int) mouseX, (int) mouseY)) {
+                        if (hb.script instanceof VariantScript vsv) {
+                            String sel = this.selectedVariationByScriptId.getOrDefault(hb.script.id(), vsv.selectedVariantId());
+                            vsv.setSelectedVariantId(sel);
+                        } else if (hb.script instanceof ScriptVariations vs) {
+                            String selected = this.selectedVariationByScriptId.getOrDefault(hb.script.id(), vs.selectedVariationId());
+                            vs.setSelectedVariationId(selected);
+                        }
+
                         hb.script.setEnabled(true);
                         hb.script.onEnable(MinecraftClient.getInstance());
                         MinecraftClient.getInstance().setScreen(null);
@@ -1020,7 +1167,7 @@ private void renderSettingsPage(DrawContext context, int x, int y, int w) {
         String tabLabel = this.selectedTab.label;
 
         // Search filter
-        String q = (this.searchVisible && this.searchField != null) ? this.searchField.getText().trim().toLowerCase() : "";
+        String q = (this.searchField != null) ? this.searchField.getText().trim().toLowerCase() : "";
 
         return this.scripts.stream()
                 .filter(s -> {
@@ -1047,46 +1194,54 @@ private void renderSettingsPage(DrawContext context, int x, int y, int w) {
 
     // ---- icon drawing (unchanged) ----
 
-    private void renderTopIcons(DrawContext context) {
-        if (this.searchButton != null) {
-            int x = this.searchButton.getX();
-            int y = this.searchButton.getY();
-            drawIconButtonFrame(context, x, y, this.searchButton.getWidth(), this.searchButton.getHeight());
-            drawMagnifierIcon(context, x, y);
+    
+    // ---------------------------------------------------------------------
+    // Custom top-right icon button (dark rounded, no vanilla ButtonWidget)
+    // ---------------------------------------------------------------------
+    private final class AtlasIconButton extends ClickableWidget {
+        private final Runnable onPress;
+        private final String glyph;
+
+        AtlasIconButton(int x, int y, int w, int h, String glyph, Runnable onPress) {
+            super(x, y, w, h, Text.literal(""));
+            this.onPress = onPress;
+            this.glyph = glyph;
         }
 
-        if (this.pageButton != null) {
-            int x = this.pageButton.getX();
-            int y = this.pageButton.getY();
-            int w = this.pageButton.getWidth();
-            int h = this.pageButton.getHeight();
-            drawIconButtonFrame(context, x, y, w, h);
+        @Override
+        protected void appendClickableNarrations(net.minecraft.client.gui.screen.narration.NarrationMessageBuilder builder) {}
 
-            // Use emojis "⚙▶" (bold, slightly larger). Selected is white; non-selected is darker.
-            final int inactive = 0xFF5C5C5C;
-            final int selected = 0xFFFFFFFF;
-            int cogColor = (this.currentPage == Page.SETTINGS) ? selected : inactive;
-            int playColor = (this.currentPage == Page.SCRIPTS) ? selected : inactive;
+        @Override
+        public void onClick(double mouseX, double mouseY) {
+            if (this.onPress != null) this.onPress.run();
+        }
 
-            final String glyphs = "⚙ ▶";
-            final float glyphScale = 1.25f;
+        @Override
+        protected void renderWidget(DrawContext context, int mouseX, int mouseY, float delta) {
+            boolean hover = this.isMouseOver(mouseX, mouseY);
 
-            int glyphW = (int) (this.textRenderer.getWidth(glyphs) * glyphScale);
-            int glyphH = (int) (this.textRenderer.fontHeight * glyphScale);
-            int tx = x + (w - glyphW) / 2;
-            int ty = y + (h - glyphH) / 2;
+            int bg = hover ? 0xFF121212 : 0xFF0B0B0B;
+            int border = hover ? 0xFF2A2A2A : 0xFF1B1B1B;
 
-            // Draw each glyph separately so they can be tinted independently.
-            int cogW = this.textRenderer.getWidth("⚙ ");
+            drawRoundedRect(context, getX(), getY(), getWidth(), getHeight(), 7, bg);
 
-            context.getMatrices().push();
-            context.getMatrices().translate(tx, ty, 0);
-            context.getMatrices().scale(glyphScale, glyphScale, 1.0f);
-            context.drawTextWithShadow(this.textRenderer, Text.literal("⚙ ").styled(s -> s.withBold(true)), 0, 0, cogColor);
-            context.drawTextWithShadow(this.textRenderer, Text.literal("▶").styled(s -> s.withBold(true)), cogW, 0, playColor);
-            context.getMatrices().pop();
+            // border (1px)
+            context.fill(getX(), getY(), getX() + getWidth(), getY() + 1, border);
+            context.fill(getX(), getY() + getHeight() - 1, getX() + getWidth(), getY() + getHeight(), border);
+            context.fill(getX(), getY(), getX() + 1, getY() + getHeight(), border);
+            context.fill(getX() + getWidth() - 1, getY(), getX() + getWidth(), getY() + getHeight(), border);
+
+            int gx = getX() + (getWidth() - textRenderer.getWidth(glyph)) / 2;
+            int gy = getY() + (getHeight() - 8) / 2;
+
+            context.drawText(textRenderer, Text.literal(glyph), gx, gy, 0xFFE6E6E6, false);
         }
     }
+
+private void renderTopIcons(DrawContext context) {
+        // no-op: AtlasIconButton renders itself.
+    }
+
 
     private static void drawIconButtonFrame(DrawContext context, int x, int y, int w, int h) {
         drawRoundedRect(context, x, y, w, h, 5, 0xCC0B0B0B);
@@ -1195,7 +1350,26 @@ private void renderSettingsPage(DrawContext context, int x, int y, int w) {
         }
     }
 
-    private static final class CardHitbox {
+    private static final class VariantHitbox {
+    final int x, y, w, h;
+    final Script script;
+    final String variationId;
+
+    VariantHitbox(int x, int y, int w, int h, Script script, String variationId) {
+        this.x = x;
+        this.y = y;
+        this.w = w;
+        this.h = h;
+        this.script = script;
+        this.variationId = variationId;
+    }
+
+    boolean contains(int mx, int my) {
+        return mx >= x && mx < x + w && my >= y && my < y + h;
+    }
+}
+
+private static final class CardHitbox {
         final int x, y, w, h;
         final Script script;
 
@@ -1234,4 +1408,30 @@ private void renderSettingsPage(DrawContext context, int x, int y, int w) {
             return mx >= x && mx < x + w && my >= y && my < y + h;
         }
     }
+
+
+    // ---------------------------------------------------------------------
+    // Script icon helper (uses Minecraft item icons; no resource textures needed)
+    // ---------------------------------------------------------------------
+    private net.minecraft.item.ItemStack getScriptIconStack(name.atlasclient.script.Script script) {
+        // If a script provides an explicit icon, use it.
+        if (script instanceof AtlasMainScreen.ScriptItemIconProvider provider) {
+            net.minecraft.item.ItemStack stack = provider.iconItemStack();
+            if (stack != null && !stack.isEmpty()) return stack;
+        }
+
+        // Fallbacks by category
+        String cat = script.category();
+        if (cat == null) cat = "";
+
+        return switch (cat) {
+            case "Farming" -> new net.minecraft.item.ItemStack(net.minecraft.item.Items.NETHER_WART);
+            case "Mining" -> new net.minecraft.item.ItemStack(net.minecraft.item.Items.DIAMOND_PICKAXE);
+            case "Combat" -> new net.minecraft.item.ItemStack(net.minecraft.item.Items.DIAMOND_SWORD);
+            case "Fishing" -> new net.minecraft.item.ItemStack(net.minecraft.item.Items.FISHING_ROD);
+            case "Foraging" -> new net.minecraft.item.ItemStack(net.minecraft.item.Items.OAK_LOG);
+            default -> new net.minecraft.item.ItemStack(net.minecraft.item.Items.PAPER);
+        };
+    }
+
 }
